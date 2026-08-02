@@ -1,0 +1,375 @@
+name: Publish Rotten Tomatoes TV RSS
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "25 * * * *"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save --no-package-lock playwright@1.62.0
+          npx playwright install --with-deps chromium
+
+      - name: Generate TV RSS feed
+        run: |
+          node <<'NODE'
+          const { chromium } = require("playwright");
+          const fs = require("fs");
+
+          const pageUrl =
+            "https://www.rottentomatoes.com/browse/tv_series_browse/sort:newest";
+
+          function cleanXml(value) {
+            return String(value ?? "").replace(
+              /[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD]/g,
+              ""
+            );
+          }
+
+          function escapeXml(value) {
+            return cleanXml(value)
+              .replaceAll("&", "&amp;")
+              .replaceAll("<", "&lt;")
+              .replaceAll(">", "&gt;")
+              .replaceAll('"', "&quot;")
+              .replaceAll("'", "&apos;");
+          }
+
+          function safeCdata(value) {
+            return cleanXml(value).replaceAll(
+              "]]>",
+              "]]]]><![CDATA[>"
+            );
+          }
+
+          function parseLatestEpisodeDate(text) {
+            const match = String(text ?? "").match(
+              /Latest Episode:\s*([A-Za-z]{3})\s+(\d{1,2})/i
+            );
+
+            if (!match) {
+              return null;
+            }
+
+            const now = new Date();
+
+            let date = new Date(
+              `${match[1]} ${match[2]}, ` +
+              `${now.getUTCFullYear()} 12:00:00 UTC`
+            );
+
+            if (Number.isNaN(date.getTime())) {
+              return null;
+            }
+
+            const thirtyOneDays =
+              31 * 24 * 60 * 60 * 1000;
+
+            if (
+              date.getTime() >
+              now.getTime() + thirtyOneDays
+            ) {
+              date = new Date(
+                `${match[1]} ${match[2]}, ` +
+                `${now.getUTCFullYear() - 1} 12:00:00 UTC`
+              );
+            }
+
+            return date;
+          }
+
+          (async () => {
+            const browser = await chromium.launch({
+              headless: true
+            });
+
+            try {
+              const context = await browser.newContext({
+                viewport: {
+                  width: 1440,
+                  height: 1200
+                }
+              });
+
+              const page = await context.newPage();
+
+              await page.goto(pageUrl, {
+                waitUntil: "domcontentloaded",
+                timeout: 90000
+              });
+
+              await page.waitForSelector(
+                "[data-qa='discovery-media-list-item'] " +
+                "rt-img.posterImage",
+                {
+                  timeout: 60000
+                }
+              );
+
+              await page.waitForTimeout(3000);
+
+              const shows = await page.evaluate(() => {
+                const results = [];
+                const seen = new Set();
+
+                const cards = Array.from(
+                  document.querySelectorAll(
+                    "[data-qa='discovery-media-list-item']"
+                  )
+                );
+
+                for (const card of cards) {
+                  const poster = card.querySelector(
+                    "rt-img.posterImage"
+                  );
+
+                  const title = (
+                    poster?.getAttribute("alt") || ""
+                  ).trim();
+
+                  const link = Array.from(
+                    card.querySelectorAll("a[href]")
+                  ).find((anchor) => {
+                    try {
+                      const url = new URL(
+                        anchor.getAttribute("href"),
+                        window.location.origin
+                      );
+
+                      return /^\/tv\/[^/]+\/?$/.test(
+                        url.pathname
+                      );
+                    } catch {
+                      return false;
+                    }
+                  });
+
+                  if (!title || !link) {
+                    continue;
+                  }
+
+                  const href = new URL(
+                    link.getAttribute("href"),
+                    window.location.origin
+                  ).href;
+
+                  if (seen.has(href)) {
+                    continue;
+                  }
+
+                  seen.add(href);
+
+                  const rawImage =
+                    poster?.getAttribute("src") || "";
+
+                  const image =
+                    rawImage && rawImage !== "none"
+                      ? new URL(
+                          rawImage,
+                          window.location.origin
+                        ).href
+                      : "";
+
+                  const cardText = (
+                    card.innerText || ""
+                  )
+                    .replace(/\s+/g, " ")
+                    .trim();
+
+                  const latestEpisodeMatch =
+                    cardText.match(
+                      /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}/i
+                    );
+
+                  results.push({
+                    title,
+                    href,
+                    image,
+                    latestEpisode:
+                      latestEpisodeMatch?.[0] || ""
+                  });
+                }
+
+                return results.slice(0, 50);
+              });
+
+              if (!shows.length) {
+                throw new Error(
+                  "No Rotten Tomatoes TV entries were found."
+                );
+              }
+
+              fs.mkdirSync("public", {
+                recursive: true
+              });
+
+              const items = shows
+                .map((show) => {
+                  const published =
+                    parseLatestEpisodeDate(
+                      show.latestEpisode
+                    );
+
+                  const description = [
+                    show.image
+                      ? `<p><img src="${escapeXml(
+                          show.image
+                        )}" alt="${escapeXml(
+                          show.title
+                        )}" /></p>`
+                      : "",
+
+                    `<p><strong>${escapeXml(
+                      show.title
+                    )}</strong></p>`,
+
+                    show.latestEpisode
+                      ? `<p>${escapeXml(
+                          show.latestEpisode
+                        )}</p>`
+                      : "",
+
+                    `<p><a href="${escapeXml(
+                      show.href
+                    )}">Open on Rotten Tomatoes</a></p>`
+                  ]
+                    .filter(Boolean)
+                    .join("\n");
+
+                  const media = show.image
+                    ? `\n                ` +
+                      `<media:content ` +
+                      `url="${escapeXml(show.image)}" ` +
+                      `medium="image" />`
+                    : "";
+
+                  const pubDate = published
+                    ? `\n                ` +
+                      `<pubDate>` +
+                      `${published.toUTCString()}` +
+                      `</pubDate>`
+                    : "";
+
+                  return `
+              <item>
+                <title>${escapeXml(show.title)}</title>
+                <link>${escapeXml(show.href)}</link>
+                <guid isPermaLink="true">${escapeXml(
+                  show.href
+                )}</guid>${pubDate}${media}
+                <description><![CDATA[${safeCdata(
+                  description
+                )}]]></description>
+              </item>`;
+                })
+                .join("\n");
+
+              const rss =
+                `<?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0"
+               xmlns:atom="http://www.w3.org/2005/Atom"
+               xmlns:media="http://search.yahoo.com/mrss/">
+            <channel>
+              <title>Rotten Tomatoes - New TV Shows</title>
+              <link>${escapeXml(pageUrl)}</link>
+              <description>Newest TV shows listed by Rotten Tomatoes</description>
+              <language>en</language>
+              <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+              <atom:link
+                href="https://pkashe.github.io/more-feeds/rottentomatoes_tv.xml"
+                rel="self"
+                type="application/rss+xml" />
+          ${items}
+            </channel>
+          </rss>
+          `;
+
+              fs.writeFileSync(
+                "public/rottentomatoes_tv.xml",
+                rss,
+                "utf8"
+              );
+
+              fs.writeFileSync(
+                "public/index.html",
+                `<!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>More Feeds</title>
+          </head>
+          <body>
+            <h1>More Feeds</h1>
+            <p>
+              <a href="rottentomatoes_tv.xml">
+                Rotten Tomatoes - New TV Shows
+              </a>
+            </p>
+          </body>
+          </html>`,
+                "utf8"
+              );
+
+              fs.writeFileSync(
+                "public/.nojekyll",
+                "",
+                "utf8"
+              );
+
+              console.log(
+                `Generated ${shows.length} TV entries.`
+              );
+
+              for (const show of shows.slice(0, 5)) {
+                console.log(
+                  `- ${show.title}: ${show.href}`
+                );
+              }
+            } finally {
+              await browser.close();
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Set up GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
