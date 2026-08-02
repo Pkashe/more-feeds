@@ -13,10 +13,6 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   build-and-deploy:
     environment:
@@ -663,7 +659,7 @@ jobs:
 
                 const rawBody = await response.body();
 
-                const xml = iconv.decode(rawBody, "windows-1252");
+                let xml = iconv.decode(rawBody, "windows-1252");
 
                 if (!xml.includes("<rss") || !xml.includes("<item>")) {
                   const browserText = await page
@@ -682,7 +678,7 @@ jobs:
                   throw new Error("Response was not a usable RSS feed");
                 }
 
-                console.log("Boxden RSS loaded through Chromium.");
+                console.log(`Boxden RSS loaded through Chromium.`);
                 return xml;
               } catch (error) {
                 errors.push(
