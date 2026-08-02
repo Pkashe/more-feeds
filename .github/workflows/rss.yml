@@ -438,7 +438,66 @@ jobs:
             );
           }
 
-          function removeMismatchedDuplicateTitles(
+          function titleFromSlug(href) {
+            const slug =
+              getSlugFromUrl(href)
+                .replace(/_\d{4}$/, "")
+                .replace(/_\d+$/, "");
+
+            if (!slug) {
+              return "";
+            }
+
+            const smallWords =
+              new Set([
+                "a",
+                "an",
+                "and",
+                "as",
+                "at",
+                "but",
+                "by",
+                "for",
+                "from",
+                "in",
+                "into",
+                "nor",
+                "of",
+                "on",
+                "or",
+                "the",
+                "to",
+                "with"
+              ]);
+
+            return slug
+              .split("_")
+              .filter(Boolean)
+              .map(
+                (word, index) => {
+                  const lower =
+                    word.toLowerCase();
+
+                  if (
+                    index > 0 &&
+                    smallWords.has(
+                      lower
+                    )
+                  ) {
+                    return lower;
+                  }
+
+                  return (
+                    lower.charAt(0)
+                      .toUpperCase() +
+                    lower.slice(1)
+                  );
+                }
+              )
+              .join(" ");
+          }
+
+          function repairMismatchedTitles(
             entries,
             feed
           ) {
@@ -466,8 +525,6 @@ jobs:
                 .get(key)
                 .push(entry);
             }
-
-            const removed = new Set();
 
             for (
               const [
@@ -497,41 +554,51 @@ jobs:
                 continue;
               }
 
-              const validEntry =
-                matching[0];
-
-              let removedCount = 0;
-
               for (const entry of group) {
                 if (
-                  entry.href !==
-                  validEntry.href
-                ) {
-                  removed.add(
+                  titleMatchesSlug(
+                    entry.title,
                     entry.href
-                  );
-
-                  removedCount += 1;
+                  )
+                ) {
+                  continue;
                 }
-              }
 
-              if (removedCount) {
+                let correctedTitle = "";
+
+                if (
+                  entry.linkTitle &&
+                  titleMatchesSlug(
+                    entry.linkTitle,
+                    entry.href
+                  )
+                ) {
+                  correctedTitle =
+                    entry.linkTitle;
+                } else {
+                  correctedTitle =
+                    titleFromSlug(
+                      entry.href
+                    );
+                }
+
+                if (!correctedTitle) {
+                  continue;
+                }
+
                 console.log(
-                  `Removed ` +
-                  `${removedCount} ` +
-                  `mismatched duplicate ` +
-                  `entries for title: ` +
-                  `${validEntry.title}`
+                  `Corrected mismatched title: ` +
+                    `"${entry.title}" -> ` +
+                    `"${correctedTitle}" ` +
+                    `(${entry.href})`
                 );
+
+                entry.title =
+                  correctedTitle;
               }
             }
 
-            return entries.filter(
-              (entry) =>
-                !removed.has(
-                  entry.href
-                )
-            );
+            return entries;
           }
 
           async function extractRottenTomatoesEntries(
@@ -682,11 +749,8 @@ jobs:
                     }
                   }
 
-                  let title =
-                    posterTitle;
-
-                  if (!title) {
-                    title = linkText
+                  const linkTitle =
+                    linkText
                       .replace(
                         /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
                         ""
@@ -724,6 +788,13 @@ jobs:
                         ""
                       )
                       .trim();
+
+                  let title =
+                    posterTitle;
+
+                  if (!title) {
+                    title =
+                      linkTitle;
                   }
 
                   if (!title) {
@@ -749,6 +820,7 @@ jobs:
 
                   results.push({
                     title,
+                    linkTitle,
                     href,
                     image,
                     displayDate
@@ -1599,7 +1671,7 @@ jobs:
                     );
 
                   const entries =
-                    removeMismatchedDuplicateTitles(
+                    repairMismatchedTitles(
                       extractedEntries,
                       feed
                     );
@@ -1632,6 +1704,16 @@ jobs:
                       `entries for ` +
                       `${feed.outputFile}.`
                   );
+
+                  for (
+                    const entry of
+                    entries.slice(0, 10)
+                  ) {
+                    console.log(
+                      `- ${entry.title}: ` +
+                        `${entry.href}`
+                    );
+                  }
                 } finally {
                   await page.close();
                 }
