@@ -11,7 +11,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: false
 
 jobs:
@@ -25,17 +25,16 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
-          node-version: "24"
-          package-manager-cache: false
+          node-version: "22"
 
       - name: Install Playwright
         run: |
-          npm install --no-save --no-package-lock playwright@1.62.0
+          npm install --no-save playwright
           npx playwright install --with-deps chromium
 
       - name: Generate TV RSS feed
@@ -47,15 +46,8 @@ jobs:
           const pageUrl =
             "https://www.rottentomatoes.com/browse/tv_series_browse/sort:newest";
 
-          function cleanXml(value) {
-            return String(value ?? "").replace(
-              /[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD]/g,
-              ""
-            );
-          }
-
           function escapeXml(value) {
-            return cleanXml(value)
+            return String(value ?? "")
               .replaceAll("&", "&amp;")
               .replaceAll("<", "&lt;")
               .replaceAll(">", "&gt;")
@@ -64,46 +56,10 @@ jobs:
           }
 
           function safeCdata(value) {
-            return cleanXml(value).replaceAll(
+            return String(value ?? "").replaceAll(
               "]]>",
               "]]]]><![CDATA[>"
             );
-          }
-
-          function parseLatestEpisodeDate(text) {
-            const match = String(text ?? "").match(
-              /Latest Episode:\s*([A-Za-z]{3})\s+(\d{1,2})/i
-            );
-
-            if (!match) {
-              return null;
-            }
-
-            const now = new Date();
-
-            let date = new Date(
-              `${match[1]} ${match[2]}, ` +
-              `${now.getUTCFullYear()} 12:00:00 UTC`
-            );
-
-            if (Number.isNaN(date.getTime())) {
-              return null;
-            }
-
-            const thirtyOneDays =
-              31 * 24 * 60 * 60 * 1000;
-
-            if (
-              date.getTime() >
-              now.getTime() + thirtyOneDays
-            ) {
-              date = new Date(
-                `${match[1]} ${match[2]}, ` +
-                `${now.getUTCFullYear() - 1} 12:00:00 UTC`
-              );
-            }
-
-            return date;
           }
 
           (async () => {
@@ -113,9 +69,13 @@ jobs:
 
             try {
               const context = await browser.newContext({
+                userAgent:
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                  "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                  "Chrome/124.0.0.0 Safari/537.36",
                 viewport: {
                   width: 1440,
-                  height: 1200
+                  height: 1600
                 }
               });
 
@@ -127,52 +87,34 @@ jobs:
               });
 
               await page.waitForSelector(
-                "[data-qa='discovery-media-list-item'] " +
-                "rt-img.posterImage",
+                'a[href^="/tv/"]',
                 {
                   timeout: 60000
                 }
               );
 
-              await page.waitForTimeout(3000);
+              await page.waitForTimeout(5000);
 
               const shows = await page.evaluate(() => {
                 const results = [];
                 const seen = new Set();
 
-                const cards = Array.from(
+                const links = Array.from(
                   document.querySelectorAll(
-                    "[data-qa='discovery-media-list-item']"
+                    'a[href^="/tv/"]'
                   )
                 );
 
-                for (const card of cards) {
-                  const poster = card.querySelector(
-                    "rt-img.posterImage"
-                  );
+                for (const link of links) {
+                  const text = (
+                    link.innerText ||
+                    link.textContent ||
+                    ""
+                  )
+                    .replace(/\s+/g, " ")
+                    .trim();
 
-                  const title = (
-                    poster?.getAttribute("alt") || ""
-                  ).trim();
-
-                  const link = Array.from(
-                    card.querySelectorAll("a[href]")
-                  ).find((anchor) => {
-                    try {
-                      const url = new URL(
-                        anchor.getAttribute("href"),
-                        window.location.origin
-                      );
-
-                      return /^\/tv\/[^/]+\/?$/.test(
-                        url.pathname
-                      );
-                    } catch {
-                      return false;
-                    }
-                  });
-
-                  if (!title || !link) {
+                  if (!text.includes("Latest Episode:")) {
                     continue;
                   }
 
@@ -185,36 +127,76 @@ jobs:
                     continue;
                   }
 
-                  seen.add(href);
+                  const latestMatch = text.match(
+                    /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}/i
+                  );
+
+                  const latestEpisode =
+                    latestMatch?.[0] || "";
+
+                  let title = text
+                    .replace(
+                      /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}/i,
+                      ""
+                    )
+                    .replace(
+                      /^(?:\d{1,3}%\s*)+/,
+                      ""
+                    )
+                    .replace(/\s*Watchlist\s*$/i, "")
+                    .trim();
+
+                  let container = link.parentElement;
+                  let poster = null;
+
+                  for (
+                    let level = 0;
+                    level < 8 && container;
+                    level += 1
+                  ) {
+                    poster = container.querySelector(
+                      "rt-img.posterImage"
+                    );
+
+                    if (poster) {
+                      break;
+                    }
+
+                    container =
+                      container.parentElement;
+                  }
+
+                  const posterTitle = (
+                    poster?.getAttribute("alt") || ""
+                  ).trim();
+
+                  if (posterTitle) {
+                    title = posterTitle;
+                  }
+
+                  if (!title) {
+                    continue;
+                  }
 
                   const rawImage =
                     poster?.getAttribute("src") || "";
 
                   const image =
-                    rawImage && rawImage !== "none"
+                    rawImage &&
+                    rawImage !== "none"
                       ? new URL(
                           rawImage,
                           window.location.origin
                         ).href
                       : "";
 
-                  const cardText = (
-                    card.innerText || ""
-                  )
-                    .replace(/\s+/g, " ")
-                    .trim();
-
-                  const latestEpisodeMatch =
-                    cardText.match(
-                      /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}/i
-                    );
+                  seen.add(href);
 
                   results.push({
                     title,
                     href,
                     image,
-                    latestEpisode:
-                      latestEpisodeMatch?.[0] || ""
+                    latestEpisode
                   });
                 }
 
@@ -233,11 +215,6 @@ jobs:
 
               const items = shows
                 .map((show) => {
-                  const published =
-                    parseLatestEpisodeDate(
-                      show.latestEpisode
-                    );
-
                   const description = [
                     show.image
                       ? `<p><img src="${escapeXml(
@@ -265,17 +242,10 @@ jobs:
                     .join("\n");
 
                   const media = show.image
-                    ? `\n                ` +
-                      `<media:content ` +
-                      `url="${escapeXml(show.image)}" ` +
-                      `medium="image" />`
-                    : "";
-
-                  const pubDate = published
-                    ? `\n                ` +
-                      `<pubDate>` +
-                      `${published.toUTCString()}` +
-                      `</pubDate>`
+                    ? `
+                <media:content
+                  url="${escapeXml(show.image)}"
+                  medium="image" />`
                     : "";
 
                   return `
@@ -284,7 +254,7 @@ jobs:
                 <link>${escapeXml(show.href)}</link>
                 <guid isPermaLink="true">${escapeXml(
                   show.href
-                )}</guid>${pubDate}${media}
+                )}</guid>${media}
                 <description><![CDATA[${safeCdata(
                   description
                 )}]]></description>
@@ -292,8 +262,7 @@ jobs:
                 })
                 .join("\n");
 
-              const rss =
-                `<?xml version="1.0" encoding="UTF-8"?>
+              const rss = `<?xml version="1.0" encoding="UTF-8"?>
           <rss version="2.0"
                xmlns:atom="http://www.w3.org/2005/Atom"
                xmlns:media="http://search.yahoo.com/mrss/">
@@ -348,7 +317,7 @@ jobs:
                 `Generated ${shows.length} TV entries.`
               );
 
-              for (const show of shows.slice(0, 5)) {
+              for (const show of shows.slice(0, 10)) {
                 console.log(
                   `- ${show.title}: ${show.href}`
                 );
@@ -372,4 +341,4 @@ jobs:
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@v4
