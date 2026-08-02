@@ -1,7 +1,10 @@
-name: Publish Rotten Tomatoes TV RSS
+name: Publish Rotten Tomatoes RSS Feeds
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/rss.yml"
   schedule:
     - cron: "25 * * * *"
 
@@ -21,7 +24,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -37,17 +40,61 @@ jobs:
           npm install --no-save playwright
           npx playwright install --with-deps chromium
 
-      - name: Generate TV RSS feed
+      - name: Generate Rotten Tomatoes RSS feeds
         run: |
           node <<'NODE'
           const { chromium } = require("playwright");
           const fs = require("fs");
 
-          const pageUrl =
-            "https://www.rottentomatoes.com/browse/tv_series_browse/sort:newest";
+          const feeds = [
+            {
+              feedTitle: "Rotten Tomatoes - New TV Shows",
+              description: "Newest TV shows listed by Rotten Tomatoes",
+              pageUrl:
+                "https://www.rottentomatoes.com/browse/tv_series_browse/sort:newest",
+              outputFile: "rottentomatoes_tv_v2.xml",
+              pathPattern: /^\/tv\/[^/]+\/?$/,
+              datePatterns: [
+                /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i
+              ]
+            },
+            {
+              feedTitle: "Rotten Tomatoes - New Movies in Theaters",
+              description: "Newest movies in theaters listed by Rotten Tomatoes",
+              pageUrl:
+                "https://www.rottentomatoes.com/browse/movies_in_theaters/sort:newest",
+              outputFile: "rottentomatoes_theaters_v2.xml",
+              pathPattern: /^\/m\/[^/]+\/?$/,
+              datePatterns: [
+                /Opens\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
+                /Opening\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
+                /In Theaters\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i
+              ]
+            },
+            {
+              feedTitle: "Rotten Tomatoes - New Movies at Home",
+              description: "Newest movies available at home listed by Rotten Tomatoes",
+              pageUrl:
+                "https://www.rottentomatoes.com/browse/movies_at_home/sort:newest",
+              outputFile: "rottentomatoes_at_home_v2.xml",
+              pathPattern: /^\/m\/[^/]+\/?$/,
+              datePatterns: [
+                /Streaming\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
+                /Available\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
+                /Premieres\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i
+              ]
+            }
+          ];
+
+          function cleanXml(value) {
+            return String(value ?? "").replace(
+              /[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD]/g,
+              ""
+            );
+          }
 
           function escapeXml(value) {
-            return String(value ?? "")
+            return cleanXml(value)
               .replaceAll("&", "&amp;")
               .replaceAll("<", "&lt;")
               .replaceAll(">", "&gt;")
@@ -56,53 +103,83 @@ jobs:
           }
 
           function safeCdata(value) {
-            return String(value ?? "").replaceAll(
+            return cleanXml(value).replaceAll(
               "]]>",
               "]]]]><![CDATA[>"
             );
           }
 
-          (async () => {
-            const browser = await chromium.launch({
-              headless: true
+          function parseDisplayDate(displayDate) {
+            if (!displayDate) {
+              return null;
+            }
+
+            const match = displayDate.match(
+              /([A-Za-z]{3})\s+(\d{1,2})(?:,\s*(\d{4}))?/i
+            );
+
+            if (!match) {
+              return null;
+            }
+
+            const now = new Date();
+            let year = match[3]
+              ? Number(match[3])
+              : now.getUTCFullYear();
+
+            let parsed = new Date(
+              `${match[1]} ${match[2]}, ${year} 12:00:00 UTC`
+            );
+
+            if (Number.isNaN(parsed.getTime())) {
+              return null;
+            }
+
+            if (!match[3]) {
+              const futureLimit =
+                now.getTime() + 60 * 24 * 60 * 60 * 1000;
+
+              if (parsed.getTime() > futureLimit) {
+                year -= 1;
+                parsed = new Date(
+                  `${match[1]} ${match[2]}, ${year} 12:00:00 UTC`
+                );
+              }
+            }
+
+            return parsed;
+          }
+
+          async function extractEntries(page, feed) {
+            await page.goto(feed.pageUrl, {
+              waitUntil: "domcontentloaded",
+              timeout: 90000
             });
 
-            try {
-              const context = await browser.newContext({
-                userAgent:
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                  "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                  "Chrome/124.0.0.0 Safari/537.36",
-                viewport: {
-                  width: 1440,
-                  height: 1600
-                }
-              });
+            await page.waitForSelector(
+              'a[href^="/tv/"], a[href^="/m/"]',
+              {
+                state: "attached",
+                timeout: 60000
+              }
+            );
 
-              const page = await context.newPage();
+            await page.waitForTimeout(5000);
 
-              await page.goto(pageUrl, {
-                waitUntil: "domcontentloaded",
-                timeout: 90000
-              });
+            return page.evaluate(
+              ({ pathPatternSource, datePatternSources }) => {
+                const pathPattern = new RegExp(pathPatternSource);
 
-              await page.waitForSelector(
-                'a[href^="/tv/"]',
-                {
-                  state: "attached",
-                  timeout: 60000
-                }
-              );
+                const datePatterns = datePatternSources.map(
+                  (source) => new RegExp(source, "i")
+                );
 
-              await page.waitForTimeout(5000);
-
-              const shows = await page.evaluate(() => {
                 const results = [];
                 const seen = new Set();
 
                 const links = Array.from(
                   document.querySelectorAll(
-                    'a[href^="/tv/"]'
+                    'a[href^="/tv/"], a[href^="/m/"]'
                   )
                 );
 
@@ -110,16 +187,22 @@ jobs:
                   const hrefValue =
                     link.getAttribute("href") || "";
 
-                  if (
-                    !/^\/tv\/[^/]+\/?$/.test(hrefValue)
-                  ) {
+                  let url;
+
+                  try {
+                    url = new URL(
+                      hrefValue,
+                      window.location.origin
+                    );
+                  } catch {
                     continue;
                   }
 
-                  const href = new URL(
-                    hrefValue,
-                    window.location.origin
-                  ).href;
+                  if (!pathPattern.test(url.pathname)) {
+                    continue;
+                  }
+
+                  const href = url.href;
 
                   if (seen.has(href)) {
                     continue;
@@ -130,7 +213,7 @@ jobs:
 
                   for (
                     let level = 0;
-                    level < 10 && container;
+                    level < 12 && container;
                     level += 1
                   ) {
                     poster = container.querySelector?.(
@@ -162,20 +245,31 @@ jobs:
                     .replace(/\s+/g, " ")
                     .trim();
 
-                  const latestEpisodeMatch =
-                    containerText.match(
-                      /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}/i
-                    );
+                  let displayDate = "";
 
-                  const latestEpisode =
-                    latestEpisodeMatch?.[0] || "";
+                  for (const pattern of datePatterns) {
+                    const match = containerText.match(pattern);
+
+                    if (match) {
+                      displayDate = match[0];
+                      break;
+                    }
+                  }
 
                   let title = posterTitle;
 
                   if (!title) {
                     title = linkText
                       .replace(
-                        /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}/i,
+                        /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
+                        ""
+                      )
+                      .replace(
+                        /Opens\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
+                        ""
+                      )
+                      .replace(
+                        /Streaming\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
                         ""
                       )
                       .replace(
@@ -211,96 +305,183 @@ jobs:
                     title,
                     href,
                     image,
-                    latestEpisode
+                    displayDate
                   });
                 }
 
                 return results.slice(0, 50);
-              });
+              },
+              {
+                pathPatternSource:
+                  feed.pathPattern.source,
 
-              if (!shows.length) {
-                throw new Error(
-                  "No Rotten Tomatoes TV entries were found."
-                );
+                datePatternSources:
+                  feed.datePatterns.map(
+                    (pattern) => pattern.source
+                  )
               }
+            );
+          }
 
-              fs.mkdirSync("public", {
-                recursive: true
-              });
+          function createRss(feed, entries) {
+            const items = entries
+              .map((entry) => {
+                const published =
+                  parseDisplayDate(entry.displayDate);
 
-              const items = shows
-                .map((show) => {
-                  const description = [
-                    show.image
-                      ? `<p><img src="${escapeXml(
-                          show.image
-                        )}" alt="${escapeXml(
-                          show.title
-                        )}" /></p>`
-                      : "",
+                const pubDate = published
+                  ? `
+                <pubDate>${published.toUTCString()}</pubDate>`
+                  : "";
 
-                    `<p><strong>${escapeXml(
-                      show.title
-                    )}</strong></p>`,
-
-                    show.latestEpisode
-                      ? `<p>${escapeXml(
-                          show.latestEpisode
-                        )}</p>`
-                      : "",
-
-                    `<p><a href="${escapeXml(
-                      show.href
-                    )}">Open on Rotten Tomatoes</a></p>`
-                  ]
-                    .filter(Boolean)
-                    .join("\n");
-
-                  const media = show.image
-                    ? `
+                const media = entry.image
+                  ? `
                 <media:content
-                  url="${escapeXml(show.image)}"
+                  url="${escapeXml(entry.image)}"
                   medium="image" />`
-                    : "";
+                  : "";
 
-                  return `
+                const description = [
+                  entry.image
+                    ? `<p><img src="${escapeXml(
+                        entry.image
+                      )}" alt="${escapeXml(
+                        entry.title
+                      )}" /></p>`
+                    : "",
+
+                  `<p><strong>${escapeXml(
+                    entry.title
+                  )}</strong></p>`,
+
+                  entry.displayDate
+                    ? `<p>${escapeXml(
+                        entry.displayDate
+                      )}</p>`
+                    : "",
+
+                  `<p><a href="${escapeXml(
+                    entry.href
+                  )}">Open on Rotten Tomatoes</a></p>`
+                ]
+                  .filter(Boolean)
+                  .join("\n");
+
+                return `
               <item>
-                <title>${escapeXml(show.title)}</title>
-                <link>${escapeXml(show.href)}</link>
+                <title>${escapeXml(entry.title)}</title>
+                <link>${escapeXml(entry.href)}</link>
                 <guid isPermaLink="true">${escapeXml(
-                  show.href
-                )}</guid>${media}
+                  entry.href
+                )}</guid>${pubDate}${media}
                 <description><![CDATA[${safeCdata(
                   description
                 )}]]></description>
               </item>`;
-                })
-                .join("\n");
+              })
+              .join("\n");
 
-              const rss = `<?xml version="1.0" encoding="UTF-8"?>
+            return `<?xml version="1.0" encoding="UTF-8"?>
           <rss version="2.0"
                xmlns:atom="http://www.w3.org/2005/Atom"
                xmlns:media="http://search.yahoo.com/mrss/">
             <channel>
-              <title>Rotten Tomatoes - New TV Shows</title>
-              <link>${escapeXml(pageUrl)}</link>
-              <description>Newest TV shows listed by Rotten Tomatoes</description>
+              <title>${escapeXml(feed.feedTitle)}</title>
+              <link>${escapeXml(feed.pageUrl)}</link>
+              <description>${escapeXml(
+                feed.description
+              )}</description>
               <language>en</language>
               <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
               <atom:link
-                href="https://pkashe.github.io/more-feeds/rottentomatoes_tv_v2.xml"
+                href="https://pkashe.github.io/more-feeds/${escapeXml(
+                  feed.outputFile
+                )}"
                 rel="self"
                 type="application/rss+xml" />
           ${items}
             </channel>
           </rss>
           `;
+          }
 
-              fs.writeFileSync(
-                "public/rottentomatoes_tv_v2.xml",
-                rss,
-                "utf8"
-              );
+          (async () => {
+            const browser = await chromium.launch({
+              headless: true
+            });
+
+            try {
+              const context = await browser.newContext({
+                userAgent:
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                  "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                  "Chrome/124.0.0.0 Safari/537.36",
+
+                viewport: {
+                  width: 1440,
+                  height: 1600
+                }
+              });
+
+              const page = await context.newPage();
+
+              fs.mkdirSync("public", {
+                recursive: true
+              });
+
+              const generatedFeeds = [];
+
+              for (const feed of feeds) {
+                console.log(
+                  `Processing ${feed.feedTitle}...`
+                );
+
+                const entries = await extractEntries(
+                  page,
+                  feed
+                );
+
+                if (!entries.length) {
+                  throw new Error(
+                    `No entries found for ${feed.feedTitle}.`
+                  );
+                }
+
+                const rss = createRss(
+                  feed,
+                  entries
+                );
+
+                fs.writeFileSync(
+                  `public/${feed.outputFile}`,
+                  rss,
+                  "utf8"
+                );
+
+                generatedFeeds.push(feed);
+
+                console.log(
+                  `Generated ${entries.length} entries ` +
+                  `for ${feed.outputFile}.`
+                );
+
+                for (const entry of entries.slice(0, 5)) {
+                  console.log(
+                    `- ${entry.title}: ${entry.href}`
+                  );
+                }
+              }
+
+              const indexLinks = generatedFeeds
+                .map(
+                  (feed) =>
+                    `<li><a href="${escapeXml(
+                      feed.outputFile
+                    )}">${escapeXml(
+                      feed.feedTitle
+                    )}</a></li>`
+                )
+                .join("\n");
 
               fs.writeFileSync(
                 "public/index.html",
@@ -312,11 +493,9 @@ jobs:
           </head>
           <body>
             <h1>More Feeds</h1>
-            <p>
-              <a href="rottentomatoes_tv_v2.xml">
-                Rotten Tomatoes - New TV Shows
-              </a>
-            </p>
+            <ul>
+              ${indexLinks}
+            </ul>
           </body>
           </html>`,
                 "utf8"
@@ -327,16 +506,6 @@ jobs:
                 "",
                 "utf8"
               );
-
-              console.log(
-                `Generated ${shows.length} TV entries.`
-              );
-
-              for (const show of shows.slice(0, 10)) {
-                console.log(
-                  `- ${show.title}: ${show.href}`
-                );
-              }
             } finally {
               await browser.close();
             }
