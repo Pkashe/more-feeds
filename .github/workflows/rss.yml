@@ -1,4 +1,4 @@
-name: Publish Rotten Tomatoes RSS Feeds
+name: Publish RSS Feeds
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Check out repository
@@ -40,16 +40,17 @@ jobs:
           npm install --no-save playwright
           npx playwright install --with-deps chromium
 
-      - name: Generate Rotten Tomatoes RSS feeds
+      - name: Generate RSS feeds
         run: |
           node <<'NODE'
           const { chromium } = require("playwright");
           const fs = require("fs");
 
-          const feeds = [
+          const rottenTomatoesFeeds = [
             {
               feedTitle: "Rotten Tomatoes - New TV Shows",
-              description: "Newest TV shows listed by Rotten Tomatoes",
+              description:
+                "Newest TV shows listed by Rotten Tomatoes",
               pageUrl:
                 "https://www.rottentomatoes.com/browse/tv_series_browse/sort:newest",
               outputFile: "rottentomatoes_tv_v2.xml",
@@ -59,11 +60,14 @@ jobs:
               ]
             },
             {
-              feedTitle: "Rotten Tomatoes - New Movies in Theaters",
-              description: "Newest movies in theaters listed by Rotten Tomatoes",
+              feedTitle:
+                "Rotten Tomatoes - New Movies in Theaters",
+              description:
+                "Newest movies in theaters listed by Rotten Tomatoes",
               pageUrl:
                 "https://www.rottentomatoes.com/browse/movies_in_theaters/sort:newest",
-              outputFile: "rottentomatoes_theaters_v2.xml",
+              outputFile:
+                "rottentomatoes_theaters_v2.xml",
               pathPattern: /^\/m\/[^/]+\/?$/,
               datePatterns: [
                 /Opens\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
@@ -72,11 +76,14 @@ jobs:
               ]
             },
             {
-              feedTitle: "Rotten Tomatoes - New Movies at Home",
-              description: "Newest movies available at home listed by Rotten Tomatoes",
+              feedTitle:
+                "Rotten Tomatoes - New Movies at Home",
+              description:
+                "Newest movies available at home listed by Rotten Tomatoes",
               pageUrl:
                 "https://www.rottentomatoes.com/browse/movies_at_home/sort:newest",
-              outputFile: "rottentomatoes_at_home_v2.xml",
+              outputFile:
+                "rottentomatoes_at_home_v2.xml",
               pathPattern: /^\/m\/[^/]+\/?$/,
               datePatterns: [
                 /Streaming\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
@@ -85,6 +92,14 @@ jobs:
               ]
             }
           ];
+
+          const layoffFeed = {
+            feedTitle: "ResMed - TheLayoff",
+            description:
+              "Latest ResMed discussions from TheLayoff",
+            pageUrl: "https://www.thelayoff.com/resmed",
+            outputFile: "resmed_thelayoff_v2.xml"
+          };
 
           function cleanXml(value) {
             return String(value ?? "").replace(
@@ -109,6 +124,12 @@ jobs:
             );
           }
 
+          function normaliseText(value) {
+            return String(value ?? "")
+              .replace(/\s+/g, " ")
+              .trim();
+          }
+
           function parseDisplayDate(displayDate) {
             if (!displayDate) {
               return null;
@@ -123,6 +144,7 @@ jobs:
             }
 
             const now = new Date();
+
             let year = match[3]
               ? Number(match[3])
               : now.getUTCFullYear();
@@ -137,10 +159,12 @@ jobs:
 
             if (!match[3]) {
               const futureLimit =
-                now.getTime() + 60 * 24 * 60 * 60 * 1000;
+                now.getTime() +
+                60 * 24 * 60 * 60 * 1000;
 
               if (parsed.getTime() > futureLimit) {
                 year -= 1;
+
                 parsed = new Date(
                   `${match[1]} ${match[2]}, ${year} 12:00:00 UTC`
                 );
@@ -150,7 +174,10 @@ jobs:
             return parsed;
           }
 
-          async function extractEntries(page, feed) {
+          async function extractRottenTomatoesEntries(
+            page,
+            feed
+          ) {
             await page.goto(feed.pageUrl, {
               waitUntil: "domcontentloaded",
               timeout: 90000
@@ -167,12 +194,18 @@ jobs:
             await page.waitForTimeout(5000);
 
             return page.evaluate(
-              ({ pathPatternSource, datePatternSources }) => {
-                const pathPattern = new RegExp(pathPatternSource);
+              ({
+                pathPatternSource,
+                datePatternSources
+              }) => {
+                const pathPattern =
+                  new RegExp(pathPatternSource);
 
-                const datePatterns = datePatternSources.map(
-                  (source) => new RegExp(source, "i")
-                );
+                const datePatterns =
+                  datePatternSources.map(
+                    (source) =>
+                      new RegExp(source, "i")
+                  );
 
                 const results = [];
                 const seen = new Set();
@@ -216,15 +249,17 @@ jobs:
                     level < 12 && container;
                     level += 1
                   ) {
-                    poster = container.querySelector?.(
-                      "rt-img.posterImage"
-                    );
+                    poster =
+                      container.querySelector?.(
+                        "rt-img.posterImage"
+                      );
 
                     if (poster) {
                       break;
                     }
 
-                    container = container.parentElement;
+                    container =
+                      container.parentElement;
                   }
 
                   const posterTitle = (
@@ -248,7 +283,8 @@ jobs:
                   let displayDate = "";
 
                   for (const pattern of datePatterns) {
-                    const match = containerText.match(pattern);
+                    const match =
+                      containerText.match(pattern);
 
                     if (match) {
                       displayDate = match[0];
@@ -269,7 +305,15 @@ jobs:
                         ""
                       )
                       .replace(
+                        /Opening\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
+                        ""
+                      )
+                      .replace(
                         /Streaming\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
+                        ""
+                      )
+                      .replace(
+                        /Available\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
                         ""
                       )
                       .replace(
@@ -323,11 +367,189 @@ jobs:
             );
           }
 
-          function createRss(feed, entries) {
+          async function extractLayoffEntries(page) {
+            await page.goto(layoffFeed.pageUrl, {
+              waitUntil: "domcontentloaded",
+              timeout: 90000
+            });
+
+            await page.waitForTimeout(5000);
+
+            const pageTitle =
+              await page.title().catch(() => "");
+
+            const bodyText = await page
+              .locator("body")
+              .innerText()
+              .catch(() => "");
+
+            if (
+              /cloudflare|verify you are human|security verification/i.test(
+                `${pageTitle} ${bodyText}`
+              )
+            ) {
+              throw new Error(
+                "TheLayoff returned a human-verification page."
+              );
+            }
+
+            const threadCount = await page
+              .locator('a[href^="/t/"]')
+              .count();
+
+            if (!threadCount) {
+              throw new Error(
+                "No TheLayoff discussion links were found."
+              );
+            }
+
+            return page.evaluate(() => {
+              const results = [];
+              const seen = new Set();
+
+              const links = Array.from(
+                document.querySelectorAll(
+                  'a[href^="/t/"]'
+                )
+              );
+
+              for (const link of links) {
+                const hrefValue =
+                  link.getAttribute("href") || "";
+
+                if (
+                  !/^\/t\/[A-Za-z0-9_-]+/.test(
+                    hrefValue
+                  )
+                ) {
+                  continue;
+                }
+
+                const href = new URL(
+                  hrefValue,
+                  window.location.origin
+                ).href;
+
+                if (seen.has(href)) {
+                  continue;
+                }
+
+                let container = link;
+
+                for (
+                  let level = 0;
+                  level < 8 && container;
+                  level += 1
+                ) {
+                  const text = (
+                    container.innerText || ""
+                  )
+                    .replace(/\s+/g, " ")
+                    .trim();
+
+                  if (
+                    text.length >= 20 &&
+                    text.length <= 3000
+                  ) {
+                    break;
+                  }
+
+                  container =
+                    container.parentElement;
+                }
+
+                const linkText = (
+                  link.innerText ||
+                  link.textContent ||
+                  ""
+                )
+                  .replace(/\s+/g, " ")
+                  .trim();
+
+                const containerText = (
+                  container?.innerText || ""
+                )
+                  .replace(/\s+/g, " ")
+                  .trim();
+
+                let title = linkText;
+
+                if (!title || title.length < 3) {
+                  const heading =
+                    container?.querySelector(
+                      "h1, h2, h3, h4, strong"
+                    );
+
+                  title = (
+                    heading?.innerText || ""
+                  )
+                    .replace(/\s+/g, " ")
+                    .trim();
+                }
+
+                if (!title || title.length < 3) {
+                  continue;
+                }
+
+                if (title.length > 250) {
+                  title =
+                    title.slice(0, 247) + "...";
+                }
+
+                let description =
+                  containerText || title;
+
+                description = description
+                  .replace(title, "")
+                  .replace(/\s+/g, " ")
+                  .trim();
+
+                if (description.length > 1500) {
+                  description =
+                    description.slice(0, 1497) +
+                    "...";
+                }
+
+                const dateMatch =
+                  containerText.match(
+                    /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?\b/i
+                  ) ||
+                  containerText.match(
+                    /\b\d{1,2}\s+(?:minute|hour|day|week|month|year)s?\s+ago\b/i
+                  );
+
+                const repliesMatch =
+                  containerText.match(
+                    /\b\d+\s+(?:reply|replies|comment|comments)\b/i
+                  );
+
+                seen.add(href);
+
+                results.push({
+                  title,
+                  href,
+                  description,
+                  displayDate:
+                    dateMatch?.[0] || "",
+                  replies:
+                    repliesMatch?.[0] || ""
+                });
+              }
+
+              return results.slice(0, 50);
+            });
+          }
+
+          function createRottenTomatoesRss(
+            feed,
+            entries
+          ) {
             const items = entries
               .map((entry) => {
                 const published =
-                  parseDisplayDate(entry.displayDate);
+                  parseDisplayDate(
+                    entry.displayDate
+                  );
 
                 const pubDate = published
                   ? `
@@ -369,8 +591,12 @@ jobs:
 
                 return `
               <item>
-                <title>${escapeXml(entry.title)}</title>
-                <link>${escapeXml(entry.href)}</link>
+                <title>${escapeXml(
+                  entry.title
+                )}</title>
+                <link>${escapeXml(
+                  entry.href
+                )}</link>
                 <guid isPermaLink="true">${escapeXml(
                   entry.href
                 )}</guid>${pubDate}${media}
@@ -381,13 +607,80 @@ jobs:
               })
               .join("\n");
 
+            return createRssDocument(
+              feed,
+              items
+            );
+          }
+
+          function createLayoffRss(entries) {
+            const items = entries
+              .map((entry) => {
+                const description = [
+                  entry.description
+                    ? `<p>${escapeXml(
+                        entry.description
+                      )}</p>`
+                    : "",
+
+                  entry.displayDate
+                    ? `<p>${escapeXml(
+                        entry.displayDate
+                      )}</p>`
+                    : "",
+
+                  entry.replies
+                    ? `<p>${escapeXml(
+                        entry.replies
+                      )}</p>`
+                    : "",
+
+                  `<p><a href="${escapeXml(
+                    entry.href
+                  )}">Open discussion on TheLayoff</a></p>`
+                ]
+                  .filter(Boolean)
+                  .join("\n");
+
+                return `
+              <item>
+                <title>${escapeXml(
+                  entry.title
+                )}</title>
+                <link>${escapeXml(
+                  entry.href
+                )}</link>
+                <guid isPermaLink="true">${escapeXml(
+                  entry.href
+                )}</guid>
+                <description><![CDATA[${safeCdata(
+                  description
+                )}]]></description>
+              </item>`;
+              })
+              .join("\n");
+
+            return createRssDocument(
+              layoffFeed,
+              items
+            );
+          }
+
+          function createRssDocument(
+            feed,
+            items
+          ) {
             return `<?xml version="1.0" encoding="UTF-8"?>
           <rss version="2.0"
                xmlns:atom="http://www.w3.org/2005/Atom"
                xmlns:media="http://search.yahoo.com/mrss/">
             <channel>
-              <title>${escapeXml(feed.feedTitle)}</title>
-              <link>${escapeXml(feed.pageUrl)}</link>
+              <title>${escapeXml(
+                feed.feedTitle
+              )}</title>
+              <link>${escapeXml(
+                feed.pageUrl
+              )}</link>
               <description>${escapeXml(
                 feed.description
               )}</description>
@@ -406,24 +699,24 @@ jobs:
           }
 
           (async () => {
-            const browser = await chromium.launch({
-              headless: true
-            });
-
-            try {
-              const context = await browser.newContext({
-                userAgent:
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                  "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                  "Chrome/124.0.0.0 Safari/537.36",
-
-                viewport: {
-                  width: 1440,
-                  height: 1600
-                }
+            const browser =
+              await chromium.launch({
+                headless: true
               });
 
-              const page = await context.newPage();
+            try {
+              const context =
+                await browser.newContext({
+                  userAgent:
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                    "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                    "Chrome/124.0.0.0 Safari/537.36",
+
+                  viewport: {
+                    width: 1440,
+                    height: 1600
+                  }
+                });
 
               fs.mkdirSync("public", {
                 recursive: true
@@ -431,57 +724,114 @@ jobs:
 
               const generatedFeeds = [];
 
-              for (const feed of feeds) {
+              for (
+                const feed of rottenTomatoesFeeds
+              ) {
                 console.log(
                   `Processing ${feed.feedTitle}...`
                 );
 
-                const entries = await extractEntries(
-                  page,
-                  feed
-                );
+                const page =
+                  await context.newPage();
 
-                if (!entries.length) {
-                  throw new Error(
-                    `No entries found for ${feed.feedTitle}.`
+                try {
+                  const entries =
+                    await extractRottenTomatoesEntries(
+                      page,
+                      feed
+                    );
+
+                  if (!entries.length) {
+                    throw new Error(
+                      `No entries found for ${feed.feedTitle}.`
+                    );
+                  }
+
+                  fs.writeFileSync(
+                    `public/${feed.outputFile}`,
+                    createRottenTomatoesRss(
+                      feed,
+                      entries
+                    ),
+                    "utf8"
                   );
-                }
 
-                const rss = createRss(
-                  feed,
-                  entries
-                );
+                  generatedFeeds.push(feed);
 
-                fs.writeFileSync(
-                  `public/${feed.outputFile}`,
-                  rss,
-                  "utf8"
-                );
-
-                generatedFeeds.push(feed);
-
-                console.log(
-                  `Generated ${entries.length} entries ` +
-                  `for ${feed.outputFile}.`
-                );
-
-                for (const entry of entries.slice(0, 5)) {
                   console.log(
-                    `- ${entry.title}: ${entry.href}`
+                    `Generated ${entries.length} entries for ${feed.outputFile}.`
                   );
+                } finally {
+                  await page.close();
                 }
               }
 
-              const indexLinks = generatedFeeds
-                .map(
-                  (feed) =>
-                    `<li><a href="${escapeXml(
-                      feed.outputFile
-                    )}">${escapeXml(
-                      feed.feedTitle
-                    )}</a></li>`
-                )
-                .join("\n");
+              console.log(
+                "Processing ResMed - TheLayoff..."
+              );
+
+              const layoffPage =
+                await context.newPage();
+
+              try {
+                const layoffEntries =
+                  await extractLayoffEntries(
+                    layoffPage
+                  );
+
+                if (layoffEntries.length) {
+                  fs.writeFileSync(
+                    `public/${layoffFeed.outputFile}`,
+                    createLayoffRss(
+                      layoffEntries
+                    ),
+                    "utf8"
+                  );
+
+                  generatedFeeds.push(
+                    layoffFeed
+                  );
+
+                  console.log(
+                    `Generated ${layoffEntries.length} entries for ${layoffFeed.outputFile}.`
+                  );
+
+                  for (
+                    const entry of
+                    layoffEntries.slice(0, 5)
+                  ) {
+                    console.log(
+                      `- ${entry.title}: ${entry.href}`
+                    );
+                  }
+                }
+              } catch (error) {
+                console.warn(
+                  "TheLayoff feed was skipped:"
+                );
+
+                console.warn(
+                  error.message || error
+                );
+
+                console.warn(
+                  "The Rotten Tomatoes feeds will still be published."
+                );
+              } finally {
+                await layoffPage.close();
+              }
+
+              const indexLinks =
+                generatedFeeds
+                  .map(
+                    (feed) =>
+                      `<li><a href="${escapeXml(
+                        feed.outputFile
+                      )}">${escapeXml(
+                        feed.feedTitle
+                      )}</a></li>`
+                  )
+                  .join("\n");
 
               fs.writeFileSync(
                 "public/index.html",
