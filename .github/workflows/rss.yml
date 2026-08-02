@@ -126,7 +126,6 @@ jobs:
                   }
 
                   let container = link;
-
                   let poster = null;
 
                   for (
@@ -142,8 +141,7 @@ jobs:
                       break;
                     }
 
-                    container =
-                      container.parentElement;
+                    container = container.parentElement;
                   }
 
                   const posterTitle = (
@@ -290,7 +288,7 @@ jobs:
               <language>en</language>
               <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
               <atom:link
-                href="https://pkashe.github.io/more-feeds/rottentomatoes_tv.xml"
+                href="https://pkashe.github.io/more-feeds/rottentomatoes_tv_v2.xml"
                 rel="self"
                 type="application/rss+xml" />
           ${items}
@@ -299,7 +297,7 @@ jobs:
           `;
 
               fs.writeFileSync(
-                "public/rottentomatoes_tv.xml",
+                "public/rottentomatoes_tv_v2.xml",
                 rss,
                 "utf8"
               );
@@ -315,7 +313,7 @@ jobs:
           <body>
             <h1>More Feeds</h1>
             <p>
-              <a href="rottentomatoes_tv.xml">
+              <a href="rottentomatoes_tv_v2.xml">
                 Rotten Tomatoes - New TV Shows
               </a>
             </p>
