@@ -171,7 +171,9 @@ jobs:
             }
 
             if (Array.isArray(value)) {
-              return value.map(valueText).join("");
+              return value
+                .map(valueText)
+                .join("");
             }
 
             if (typeof value === "object") {
@@ -209,16 +211,27 @@ jobs:
               `${match[1]} ${match[2]}, ${year} 12:00:00 UTC`
             );
 
-            if (Number.isNaN(parsed.getTime())) {
+            if (
+              Number.isNaN(
+                parsed.getTime()
+              )
+            ) {
               return null;
             }
 
             if (!match[3]) {
               const futureLimit =
                 now.getTime() +
-                60 * 24 * 60 * 60 * 1000;
+                60 *
+                  24 *
+                  60 *
+                  60 *
+                  1000;
 
-              if (parsed.getTime() > futureLimit) {
+              if (
+                parsed.getTime() >
+                futureLimit
+              ) {
                 year -= 1;
 
                 parsed = new Date(
@@ -241,13 +254,21 @@ jobs:
                xmlns:dc="http://purl.org/dc/elements/1.1/"
                xmlns:content="http://purl.org/rss/1.0/modules/content/">
             <channel>
-              <title>${escapeXml(feed.feedTitle)}</title>
-              <link>${escapeXml(feed.pageUrl)}</link>
-              <description>${escapeXml(feed.description)}</description>
+              <title>${escapeXml(
+                feed.feedTitle
+              )}</title>
+              <link>${escapeXml(
+                feed.pageUrl
+              )}</link>
+              <description>${escapeXml(
+                feed.description
+              )}</description>
               <language>en</language>
               <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
               <atom:link
-                href="${siteBase}/${escapeXml(feed.outputFile)}"
+                href="${siteBase}/${escapeXml(
+                  feed.outputFile
+                )}"
                 rel="self"
                 type="application/rss+xml" />
           ${items}
@@ -262,7 +283,9 @@ jobs:
             try {
               const response =
                 await fetch(
-                  `${siteBase}/${feed.outputFile}?cache=${Date.now()}`,
+                  `${siteBase}/` +
+                    `${feed.outputFile}` +
+                    `?cache=${Date.now()}`,
                   {
                     headers: {
                       "cache-control":
@@ -329,7 +352,9 @@ jobs:
               }
             );
 
-            await page.waitForTimeout(5000);
+            await page.waitForTimeout(
+              5000
+            );
 
             return page.evaluate(
               ({
@@ -351,7 +376,9 @@ jobs:
                   );
 
                 function cleanText(value) {
-                  return String(value || "")
+                  return String(
+                    value || ""
+                  )
                     .replace(/\s+/g, " ")
                     .trim();
                 }
@@ -390,10 +417,9 @@ jobs:
                 }
 
                 function removeScores(text) {
-                  let cleaned =
-                    String(text || "");
-
-                  cleaned = cleaned
+                  return String(
+                    text || ""
+                  )
                     .replace(
                       /(?:^|\s)\d{1,3}%/g,
                       " "
@@ -404,22 +430,20 @@ jobs:
                     )
                     .replace(/\s+/g, " ")
                     .trim();
-
-                  return cleaned;
                 }
 
                 function removeAccessibilityText(
                   text
                 ) {
                   let cleaned =
-                    String(text || "")
-                      .replace(/\s+/g, " ")
-                      .trim();
+                    cleanText(text);
 
                   const linkToIndex =
                     cleaned
                       .toLowerCase()
-                      .indexOf(" link to ");
+                      .indexOf(
+                        " link to "
+                      );
 
                   if (linkToIndex > 0) {
                     cleaned =
@@ -431,89 +455,138 @@ jobs:
                         .trim();
                   }
 
-                  cleaned = cleaned
+                  return cleaned
                     .replace(
                       /^link to\s+/i,
                       ""
                     )
                     .trim();
+                }
 
-                  return cleaned;
+                function isMatchingMediaLink(
+                  candidate
+                ) {
+                  const hrefValue =
+                    candidate.getAttribute(
+                      "href"
+                    ) || "";
+
+                  try {
+                    const url =
+                      new URL(
+                        hrefValue,
+                        window.location.origin
+                      );
+
+                    return pathPattern.test(
+                      url.pathname
+                    );
+                  } catch {
+                    return false;
+                  }
+                }
+
+                function hasUsableImage(
+                  element
+                ) {
+                  return Boolean(
+                    element?.querySelector?.(
+                      [
+                        "rt-img.posterImage",
+                        "rt-img",
+                        "img.posterImage",
+                        'img[data-qa*="poster"]',
+                        'img[class*="poster"]',
+                        "picture img",
+                        "img"
+                      ].join(",")
+                    )
+                  );
                 }
 
                 function getCardContainer(
                   link
                 ) {
-                  const directCard =
+                  const preferred =
                     link.closest(
                       [
                         "media-list-item",
                         "tile-dynamic",
                         '[data-qa="discovery-media-list-item"]',
-                        '[data-qa="discovery-media-list-item-caption"]',
+                        '[data-qa*="media-list-item"]',
+                        '[data-qa*="discovery-media"]',
                         "article"
                       ].join(",")
                     );
 
-                  if (directCard) {
-                    return directCard;
+                  if (
+                    preferred &&
+                    hasUsableImage(
+                      preferred
+                    )
+                  ) {
+                    return preferred;
                   }
 
                   let current =
                     link.parentElement;
 
+                  let firstWithImage =
+                    null;
+
                   for (
                     let level = 0;
-                    level < 10 &&
+                    level < 14 &&
                     current;
                     level += 1
                   ) {
+                    if (
+                      hasUsableImage(
+                        current
+                      ) &&
+                      !firstWithImage
+                    ) {
+                      firstWithImage =
+                        current;
+                    }
+
                     const matchingLinks =
                       Array.from(
                         current.querySelectorAll(
                           'a[href^="/tv/"], a[href^="/m/"]'
                         )
                       ).filter(
-                        (candidate) => {
-                          const href =
-                            candidate.getAttribute(
-                              "href"
-                            ) || "";
-
-                          let url;
-
-                          try {
-                            url = new URL(
-                              href,
-                              window.location.origin
-                            );
-                          } catch {
-                            return false;
-                          }
-
-                          if (
-                            !pathPattern.test(
-                              url.pathname
-                            )
-                          ) {
-                            return false;
-                          }
-
-                          const text =
-                            cleanText(
-                              candidate.innerText ||
-                              candidate.textContent
-                            );
-
-                          return Boolean(
-                            findDate(text)
-                          );
-                        }
+                        isMatchingMediaLink
                       );
 
+                    const uniqueHrefs =
+                      new Set(
+                        matchingLinks.map(
+                          (
+                            candidate
+                          ) => {
+                            try {
+                              return new URL(
+                                candidate.getAttribute(
+                                  "href"
+                                ) || "",
+                                window.location.origin
+                              ).href;
+                            } catch {
+                              return "";
+                            }
+                          }
+                        )
+                      );
+
+                    uniqueHrefs.delete("");
+
                     if (
-                      matchingLinks.length ===
-                      1
+                      hasUsableImage(
+                        current
+                      ) &&
+                      uniqueHrefs.size ===
+                        1
                     ) {
                       return current;
                     }
@@ -522,30 +595,213 @@ jobs:
                       current.parentElement;
                   }
 
-                  return link.parentElement;
+                  return (
+                    firstWithImage ||
+                    link.parentElement
+                  );
                 }
 
-                function getPoster(
+                function firstSrcsetUrl(
+                  srcset
+                ) {
+                  if (!srcset) {
+                    return "";
+                  }
+
+                  const firstPart =
+                    String(srcset)
+                      .split(",")[0]
+                      .trim();
+
+                  return (
+                    firstPart
+                      .split(/\s+/)[0] ||
+                    ""
+                  );
+                }
+
+                function makeAbsoluteImageUrl(
+                  value
+                ) {
+                  if (
+                    !value ||
+                    value === "none" ||
+                    value.startsWith(
+                      "data:"
+                    )
+                  ) {
+                    return "";
+                  }
+
+                  try {
+                    return new URL(
+                      value,
+                      window.location.origin
+                    ).href;
+                  } catch {
+                    return "";
+                  }
+                }
+
+                function extractImageUrl(
                   container,
                   link
                 ) {
-                  const directImage =
-                    link.querySelector(
-                      "rt-img.posterImage, img"
-                    );
+                  const selectors = [
+                    "rt-img.posterImage",
+                    "rt-img",
+                    "img.posterImage",
+                    'img[data-qa*="poster"]',
+                    'img[class*="poster"]',
+                    "picture img",
+                    "img"
+                  ];
 
-                  if (directImage) {
-                    return directImage;
+                  const candidates = [];
+
+                  for (
+                    const selector of
+                    selectors
+                  ) {
+                    const direct =
+                      link.querySelector?.(
+                        selector
+                      );
+
+                    if (
+                      direct &&
+                      !candidates.includes(
+                        direct
+                      )
+                    ) {
+                      candidates.push(
+                        direct
+                      );
+                    }
+
+                    const cardImage =
+                      container?.querySelector?.(
+                        selector
+                      );
+
+                    if (
+                      cardImage &&
+                      !candidates.includes(
+                        cardImage
+                      )
+                    ) {
+                      candidates.push(
+                        cardImage
+                      );
+                    }
                   }
 
-                  return (
-                    container?.querySelector(
-                      "rt-img.posterImage, " +
-                      'img[data-qa*="poster"], ' +
-                      'img[class*="poster"], ' +
-                      "img"
-                    ) || null
-                  );
+                  for (
+                    const candidate of
+                    candidates
+                  ) {
+                    const nestedImage =
+                      candidate.tagName
+                        ?.toLowerCase() ===
+                      "rt-img"
+                        ? candidate.querySelector(
+                            "img"
+                          )
+                        : candidate;
+
+                    const values = [
+                      nestedImage
+                        ?.currentSrc,
+                      nestedImage
+                        ?.getAttribute?.(
+                          "src"
+                        ),
+                      nestedImage
+                        ?.getAttribute?.(
+                          "data-src"
+                        ),
+                      nestedImage
+                        ?.getAttribute?.(
+                          "data-lazy-src"
+                        ),
+                      firstSrcsetUrl(
+                        nestedImage
+                          ?.getAttribute?.(
+                            "srcset"
+                          )
+                      ),
+                      firstSrcsetUrl(
+                        nestedImage
+                          ?.getAttribute?.(
+                            "data-srcset"
+                          )
+                      ),
+                      candidate
+                        ?.getAttribute?.(
+                          "src"
+                        ),
+                      candidate
+                        ?.getAttribute?.(
+                          "data-src"
+                        ),
+                      candidate
+                        ?.getAttribute?.(
+                          "data-lazy-src"
+                        ),
+                      firstSrcsetUrl(
+                        candidate
+                          ?.getAttribute?.(
+                            "srcset"
+                          )
+                      )
+                    ];
+
+                    const picture =
+                      nestedImage?.closest?.(
+                        "picture"
+                      );
+
+                    if (picture) {
+                      for (
+                        const source of
+                        picture.querySelectorAll(
+                          "source"
+                        )
+                      ) {
+                        values.push(
+                          firstSrcsetUrl(
+                            source.getAttribute(
+                              "srcset"
+                            )
+                          )
+                        );
+
+                        values.push(
+                          firstSrcsetUrl(
+                            source.getAttribute(
+                              "data-srcset"
+                            )
+                          )
+                        );
+                      }
+                    }
+
+                    for (
+                      const value of
+                      values
+                    ) {
+                      const absolute =
+                        makeAbsoluteImageUrl(
+                          value
+                        );
+
+                      if (absolute) {
+                        return absolute;
+                      }
+                    }
+                  }
+
+                  return "";
                 }
 
                 const results = [];
@@ -593,16 +849,16 @@ jobs:
                     findDate(linkText);
 
                   /*
-                   * Only a genuine discovery card caption
-                   * contains the relevant release/episode
-                   * date. Poster links and hidden related
-                   * links are rejected here.
+                   * Only use the dated caption link for each
+                   * card. This rejects hidden, poster-only and
+                   * unrelated links.
                    */
                   if (!displayDate) {
                     continue;
                   }
 
-                  const href = url.href;
+                  const href =
+                    url.href;
 
                   if (seen.has(href)) {
                     continue;
@@ -631,36 +887,11 @@ jobs:
                       link
                     );
 
-                  const poster =
-                    getPoster(
+                  const image =
+                    extractImageUrl(
                       container,
                       link
                     );
-
-                  const rawImage =
-                    poster?.getAttribute(
-                      "src"
-                    ) ||
-                    poster?.getAttribute(
-                      "data-src"
-                    ) ||
-                    "";
-
-                  let image = "";
-
-                  if (
-                    rawImage &&
-                    rawImage !== "none"
-                  ) {
-                    try {
-                      image = new URL(
-                        rawImage,
-                        window.location.origin
-                      ).href;
-                    } catch {
-                      image = "";
-                    }
-                  }
 
                   seen.add(href);
 
@@ -679,7 +910,8 @@ jobs:
               },
               {
                 pathPatternSource:
-                  feed.pathPattern.source,
+                  feed.pathPattern
+                    .source,
 
                 datePatternSources:
                   feed.datePatterns.map(
@@ -694,54 +926,57 @@ jobs:
             feed,
             entries
           ) {
-            const items = entries
-              .map((entry) => {
-                const published =
-                  parseDisplayDate(
-                    entry.displayDate
-                  );
+            const items =
+              entries
+                .map((entry) => {
+                  const published =
+                    parseDisplayDate(
+                      entry.displayDate
+                    );
 
-                const pubDate =
-                  published
-                    ? `
+                  const pubDate =
+                    published
+                      ? `
                 <pubDate>${published.toUTCString()}</pubDate>`
-                    : "";
+                      : "";
 
-                const media =
-                  entry.image
-                    ? `
+                  const media =
+                    entry.image
+                      ? `
                 <media:content
-                  url="${escapeXml(entry.image)}"
+                  url="${escapeXml(
+                    entry.image
+                  )}"
                   medium="image" />`
-                    : "";
+                      : "";
 
-                const description = [
-                  entry.image
-                    ? `<p><img src="${escapeXml(
-                        entry.image
-                      )}" alt="${escapeXml(
-                        entry.title
-                      )}" /></p>`
-                    : "",
+                  const description = [
+                    entry.image
+                      ? `<p><img src="${escapeXml(
+                          entry.image
+                        )}" alt="${escapeXml(
+                          entry.title
+                        )}" /></p>`
+                      : "",
 
-                  `<p><strong>${escapeXml(
-                    entry.title
-                  )}</strong></p>`,
+                    `<p><strong>${escapeXml(
+                      entry.title
+                    )}</strong></p>`,
 
-                  entry.displayDate
-                    ? `<p>${escapeXml(
-                        entry.displayDate
-                      )}</p>`
-                    : "",
+                    entry.displayDate
+                      ? `<p>${escapeXml(
+                          entry.displayDate
+                        )}</p>`
+                      : "",
 
-                  `<p><a href="${escapeXml(
-                    entry.href
-                  )}">Open on Rotten Tomatoes</a></p>`
-                ]
-                  .filter(Boolean)
-                  .join("\n");
+                    `<p><a href="${escapeXml(
+                      entry.href
+                    )}">Open on Rotten Tomatoes</a></p>`
+                  ]
+                    .filter(Boolean)
+                    .join("\n");
 
-                return `
+                  return `
               <item>
                 <title>${escapeXml(
                   entry.title
@@ -756,8 +991,8 @@ jobs:
                   description
                 )}]]></description>
               </item>`;
-              })
-              .join("\n");
+                })
+                .join("\n");
 
             return createRssDocument(
               feed,
@@ -777,7 +1012,9 @@ jobs:
               }
             );
 
-            await page.waitForTimeout(5000);
+            await page.waitForTimeout(
+              5000
+            );
 
             const pageTitle =
               await page
@@ -813,234 +1050,257 @@ jobs:
               );
             }
 
-            return page.evaluate(() => {
-              const results = [];
-              const seenThreadIds =
-                new Set();
+            return page.evaluate(
+              () => {
+                const results = [];
 
-              const links =
-                Array.from(
-                  document.querySelectorAll(
-                    'a[href^="/t/"]'
-                  )
-                );
+                const seenThreadIds =
+                  new Set();
 
-              for (const link of links) {
-                const hrefValue =
-                  link.getAttribute(
-                    "href"
-                  ) || "";
-
-                const threadMatch =
-                  hrefValue.match(
-                    /^\/t\/([A-Za-z0-9_-]+)/
+                const links =
+                  Array.from(
+                    document.querySelectorAll(
+                      'a[href^="/t/"]'
+                    )
                   );
 
-                if (!threadMatch) {
-                  continue;
-                }
+                for (const link of links) {
+                  const hrefValue =
+                    link.getAttribute(
+                      "href"
+                    ) || "";
 
-                if (
-                  hrefValue.includes(
-                    "#replies"
-                  )
-                ) {
-                  continue;
-                }
+                  const threadMatch =
+                    hrefValue.match(
+                      /^\/t\/([A-Za-z0-9_-]+)/
+                    );
 
-                const linkText = (
-                  link.innerText ||
-                  link.textContent ||
-                  ""
-                )
-                  .replace(/\s+/g, " ")
-                  .trim();
+                  if (!threadMatch) {
+                    continue;
+                  }
 
-                if (
-                  /^\d+\s+(?:reply|replies|comment|comments)$/i.test(
-                    linkText
-                  )
-                ) {
-                  continue;
-                }
+                  if (
+                    hrefValue.includes(
+                      "#replies"
+                    )
+                  ) {
+                    continue;
+                  }
 
-                const threadId =
-                  threadMatch[1];
-
-                if (
-                  seenThreadIds.has(
-                    threadId
-                  )
-                ) {
-                  continue;
-                }
-
-                let container = link;
-
-                for (
-                  let level = 0;
-                  level < 8 &&
-                  container;
-                  level += 1
-                ) {
-                  const text = (
-                    container.innerText ||
+                  const linkText = (
+                    link.innerText ||
+                    link.textContent ||
                     ""
                   )
                     .replace(/\s+/g, " ")
                     .trim();
 
                   if (
-                    text.length >= 20 &&
-                    text.length <= 3000
+                    /^\d+\s+(?:reply|replies|comment|comments)$/i.test(
+                      linkText
+                    )
                   ) {
-                    break;
+                    continue;
                   }
 
-                  container =
-                    container.parentElement;
-                }
+                  const threadId =
+                    threadMatch[1];
 
-                const containerText = (
-                  container?.innerText ||
-                  ""
-                )
-                  .replace(/\s+/g, " ")
-                  .trim();
+                  if (
+                    seenThreadIds.has(
+                      threadId
+                    )
+                  ) {
+                    continue;
+                  }
 
-                let title = linkText;
+                  let container =
+                    link;
 
-                if (
-                  !title ||
-                  title.length < 3
-                ) {
-                  const heading =
-                    container?.querySelector(
-                      "h1, h2, h3, h4, strong"
+                  for (
+                    let level = 0;
+                    level < 8 &&
+                    container;
+                    level += 1
+                  ) {
+                    const text = (
+                      container.innerText ||
+                      ""
+                    )
+                      .replace(
+                        /\s+/g,
+                        " "
+                      )
+                      .trim();
+
+                    if (
+                      text.length >= 20 &&
+                      text.length <= 3000
+                    ) {
+                      break;
+                    }
+
+                    container =
+                      container.parentElement;
+                  }
+
+                  const containerText = (
+                    container
+                      ?.innerText ||
+                    ""
+                  )
+                    .replace(/\s+/g, " ")
+                    .trim();
+
+                  let title =
+                    linkText;
+
+                  if (
+                    !title ||
+                    title.length < 3
+                  ) {
+                    const heading =
+                      container
+                        ?.querySelector(
+                          "h1, h2, h3, h4, strong"
+                        );
+
+                    title = (
+                      heading
+                        ?.innerText ||
+                      ""
+                    )
+                      .replace(
+                        /\s+/g,
+                        " "
+                      )
+                      .trim();
+                  }
+
+                  if (
+                    !title ||
+                    title.length < 3 ||
+                    /^\d+\s+(?:reply|replies|comment|comments)$/i.test(
+                      title
+                    )
+                  ) {
+                    continue;
+                  }
+
+                  if (
+                    title.length > 250
+                  ) {
+                    title =
+                      title.slice(
+                        0,
+                        247
+                      ) + "...";
+                  }
+
+                  const href =
+                    new URL(
+                      `/t/${threadId}`,
+                      window.location.origin
+                    ).href;
+
+                  let description =
+                    containerText ||
+                    title;
+
+                  description =
+                    description
+                      .replace(
+                        title,
+                        ""
+                      )
+                      .replace(
+                        /\s+/g,
+                        " "
+                      )
+                      .trim();
+
+                  if (
+                    description.length >
+                    1500
+                  ) {
+                    description =
+                      description.slice(
+                        0,
+                        1497
+                      ) + "...";
+                  }
+
+                  const dateMatch =
+                    containerText.match(
+                      /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?\b/i
+                    ) ||
+                    containerText.match(
+                      /\b\d{1,2}\s+(?:minute|hour|day|week|month|year)s?\s+ago\b/i
                     );
 
-                  title = (
-                    heading?.innerText ||
-                    ""
-                  )
-                    .replace(/\s+/g, " ")
-                    .trim();
-                }
+                  const repliesMatch =
+                    containerText.match(
+                      /\b\d+\s+(?:reply|replies|comment|comments)\b/i
+                    );
 
-                if (
-                  !title ||
-                  title.length < 3 ||
-                  /^\d+\s+(?:reply|replies|comment|comments)$/i.test(
-                    title
-                  )
-                ) {
-                  continue;
-                }
-
-                if (title.length > 250) {
-                  title =
-                    title.slice(
-                      0,
-                      247
-                    ) + "...";
-                }
-
-                const href =
-                  new URL(
-                    `/t/${threadId}`,
-                    window.location.origin
-                  ).href;
-
-                let description =
-                  containerText ||
-                  title;
-
-                description =
-                  description
-                    .replace(title, "")
-                    .replace(/\s+/g, " ")
-                    .trim();
-
-                if (
-                  description.length >
-                  1500
-                ) {
-                  description =
-                    description.slice(
-                      0,
-                      1497
-                    ) + "...";
-                }
-
-                const dateMatch =
-                  containerText.match(
-                    /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?\b/i
-                  ) ||
-                  containerText.match(
-                    /\b\d{1,2}\s+(?:minute|hour|day|week|month|year)s?\s+ago\b/i
+                  seenThreadIds.add(
+                    threadId
                   );
 
-                const repliesMatch =
-                  containerText.match(
-                    /\b\d+\s+(?:reply|replies|comment|comments)\b/i
-                  );
+                  results.push({
+                    title,
+                    href,
+                    description,
+                    displayDate:
+                      dateMatch?.[0] ||
+                      "",
+                    replies:
+                      repliesMatch?.[0] ||
+                      ""
+                  });
+                }
 
-                seenThreadIds.add(
-                  threadId
+                return results.slice(
+                  0,
+                  50
                 );
-
-                results.push({
-                  title,
-                  href,
-                  description,
-                  displayDate:
-                    dateMatch?.[0] ||
-                    "",
-                  replies:
-                    repliesMatch?.[0] ||
-                    ""
-                });
               }
-
-              return results.slice(
-                0,
-                50
-              );
-            });
+            );
           }
 
           function createLayoffRss(
             entries
           ) {
-            const items = entries
-              .map((entry) => {
-                const description = [
-                  entry.description
-                    ? `<p>${escapeXml(
-                        entry.description
-                      )}</p>`
-                    : "",
+            const items =
+              entries
+                .map((entry) => {
+                  const description = [
+                    entry.description
+                      ? `<p>${escapeXml(
+                          entry.description
+                        )}</p>`
+                      : "",
 
-                  entry.displayDate
-                    ? `<p>${escapeXml(
-                        entry.displayDate
-                      )}</p>`
-                    : "",
+                    entry.displayDate
+                      ? `<p>${escapeXml(
+                          entry.displayDate
+                        )}</p>`
+                      : "",
 
-                  entry.replies
-                    ? `<p>${escapeXml(
-                        entry.replies
-                      )}</p>`
-                    : "",
+                    entry.replies
+                      ? `<p>${escapeXml(
+                          entry.replies
+                        )}</p>`
+                      : "",
 
-                  `<p><a href="${escapeXml(
-                    entry.href
-                  )}">Open discussion on TheLayoff</a></p>`
-                ]
-                  .filter(Boolean)
-                  .join("\n");
+                    `<p><a href="${escapeXml(
+                      entry.href
+                    )}">Open discussion on TheLayoff</a></p>`
+                  ]
+                    .filter(Boolean)
+                    .join("\n");
 
-                return `
+                  return `
               <item>
                 <title>${escapeXml(
                   entry.title
@@ -1055,8 +1315,8 @@ jobs:
                   description
                 )}]]></description>
               </item>`;
-              })
-              .join("\n");
+                })
+                .join("\n");
 
             return createRssDocument(
               layoffFeed,
@@ -1080,7 +1340,9 @@ jobs:
                   await fetch(
                     sourceUrl,
                     {
-                      redirect: "follow",
+                      redirect:
+                        "follow",
+
                       headers: {
                         accept:
                           "application/rss+xml, application/xml, text/xml, */*",
@@ -1100,7 +1362,8 @@ jobs:
 
                 const bytes =
                   new Uint8Array(
-                    await response.arrayBuffer()
+                    await response
+                      .arrayBuffer()
                   );
 
                 const xml =
@@ -1124,7 +1387,10 @@ jobs:
                 return xml;
               } catch (error) {
                 errors.push(
-                  `${sourceUrl}: ${error.message || error}`
+                  `${sourceUrl}: ${
+                    error.message ||
+                    error
+                  }`
                 );
               }
             }
@@ -1163,10 +1429,14 @@ jobs:
               parser.parse(xml);
 
             const rawItems =
-              parsed?.rss?.channel?.item;
+              parsed?.rss
+                ?.channel
+                ?.item;
 
             const items =
-              Array.isArray(rawItems)
+              Array.isArray(
+                rawItems
+              )
                 ? rawItems
                 : rawItems
                   ? [rawItems]
@@ -1181,7 +1451,9 @@ jobs:
                 )
                   ? item.category
                   : item.category
-                    ? [item.category]
+                    ? [
+                        item.category
+                      ]
                     : [];
 
               const category =
@@ -1201,7 +1473,10 @@ jobs:
                       valueText(
                         candidate
                       )
-                        .replace(/\s+/g, " ")
+                        .replace(
+                          /\s+/g,
+                          " "
+                        )
                         .trim()
                         .toLowerCase();
 
@@ -1248,13 +1523,16 @@ jobs:
 
               const creator =
                 valueText(
-                  item["dc:creator"]
+                  item[
+                    "dc:creator"
+                  ]
                 ).trim();
 
               const guid =
                 valueText(
                   item.guid
-                ).trim() || link;
+                ).trim() ||
+                link;
 
               const categoryName =
                 valueText(
@@ -1272,7 +1550,10 @@ jobs:
                     )
                   : "https://boxden.com/forumdisplay.php?f=218";
 
-              if (!title || !link) {
+              if (
+                !title ||
+                !link
+              ) {
                 continue;
               }
 
@@ -1301,41 +1582,42 @@ jobs:
           function createBoxdenRss(
             entries
           ) {
-            const items = entries
-              .map((entry) => {
-                const pubDate =
-                  entry.pubDate
-                    ? `
+            const items =
+              entries
+                .map((entry) => {
+                  const pubDate =
+                    entry.pubDate
+                      ? `
                 <pubDate>${escapeXml(
                   entry.pubDate
                 )}</pubDate>`
-                    : "";
+                      : "";
 
-                const creator =
-                  entry.creator
-                    ? `
+                  const creator =
+                    entry.creator
+                      ? `
                 <dc:creator>${escapeXml(
                   entry.creator
                 )}</dc:creator>`
-                    : "";
+                      : "";
 
-                const description =
-                  entry.description
-                    ? `
+                  const description =
+                    entry.description
+                      ? `
                 <description><![CDATA[${safeCdata(
                   entry.description
                 )}]]></description>`
-                    : "";
+                      : "";
 
-                const content =
-                  entry.content
-                    ? `
+                  const content =
+                    entry.content
+                      ? `
                 <content:encoded><![CDATA[${safeCdata(
                   entry.content
                 )}]]></content:encoded>`
-                    : "";
+                      : "";
 
-                return `
+                  return `
               <item>
                 <title>${escapeXml(
                   entry.title
@@ -1352,8 +1634,8 @@ jobs:
                   entry.categoryName
                 )}</category>${description}${content}
               </item>`;
-              })
-              .join("\n");
+                })
+                .join("\n");
 
             return createRssDocument(
               boxdenFeed,
@@ -1420,30 +1702,35 @@ jobs:
           (async () => {
             const browser =
               await chromium.launch({
-                headless: true
+                headless:
+                  true
               });
 
             try {
               const context =
-                await browser.newContext({
-                  userAgent:
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                    "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                    "Chrome/124.0.0.0 Safari/537.36",
+                await browser
+                  .newContext({
+                    userAgent:
+                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                      "Chrome/124.0.0.0 Safari/537.36",
 
-                  viewport: {
-                    width: 1440,
-                    height: 1600
-                  },
+                    viewport: {
+                      width:
+                        1440,
+                      height:
+                        1600
+                    },
 
-                  locale:
-                    "en-US"
-                });
+                    locale:
+                      "en-US"
+                  });
 
               fs.mkdirSync(
                 "public",
                 {
-                  recursive: true
+                  recursive:
+                    true
                 }
               );
 
@@ -1459,7 +1746,8 @@ jobs:
                 );
 
                 const page =
-                  await context.newPage();
+                  await context
+                    .newPage();
 
                 try {
                   const entries =
@@ -1487,16 +1775,37 @@ jobs:
                     feed
                   );
 
+                  const imageCount =
+                    entries.filter(
+                      (entry) =>
+                        Boolean(
+                          entry.image
+                        )
+                    ).length;
+
                   console.log(
                     `Generated ${entries.length} entries for ${feed.outputFile}.`
                   );
 
+                  console.log(
+                    `Poster images found: ${imageCount}/${entries.length}.`
+                  );
+
                   for (
                     const entry of
-                    entries.slice(0, 12)
+                    entries.slice(
+                      0,
+                      12
+                    )
                   ) {
                     console.log(
-                      `- ${entry.title}: ${entry.href}`
+                      `- ${entry.title}: ` +
+                        `${entry.href} | ` +
+                        `image: ${
+                          entry.image
+                            ? "yes"
+                            : "no"
+                        }`
                     );
                   }
                 } finally {
@@ -1513,7 +1822,8 @@ jobs:
                 generator:
                   async () => {
                     const page =
-                      await context.newPage();
+                      await context
+                        .newPage();
 
                     try {
                       const entries =
@@ -1595,10 +1905,17 @@ jobs:
             } finally {
               await browser.close();
             }
-          })().catch((error) => {
-            console.error(error);
-            process.exit(1);
-          });
+          })().catch(
+            (error) => {
+              console.error(
+                error
+              );
+
+              process.exit(
+                1
+              );
+            }
+          );
           NODE
 
       - name: Set up GitHub Pages
