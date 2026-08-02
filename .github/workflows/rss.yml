@@ -1052,8 +1052,159 @@ jobs:
 
             return page.evaluate(
               () => {
-                const results = [];
+                function cleanText(value) {
+                  return String(
+                    value || ""
+                  )
+                    .replace(/\s+/g, " ")
+                    .trim();
+                }
 
+                function getThreadIdFromHref(
+                  href
+                ) {
+                  const match =
+                    String(href || "")
+                      .match(
+                        /^\/t\/([A-Za-z0-9_-]+)/
+                      );
+
+                  return match?.[1] || "";
+                }
+
+                function uniqueThreadIds(
+                  element
+                ) {
+                  const ids =
+                    new Set();
+
+                  for (
+                    const candidate of
+                    element.querySelectorAll(
+                      'a[href^="/t/"]'
+                    )
+                  ) {
+                    const id =
+                      getThreadIdFromHref(
+                        candidate.getAttribute(
+                          "href"
+                        ) || ""
+                      );
+
+                    if (id) {
+                      ids.add(id);
+                    }
+                  }
+
+                  return ids;
+                }
+
+                function findTopicCard(
+                  link,
+                  threadId
+                ) {
+                  let current =
+                    link.parentElement;
+
+                  let best = null;
+                  let bestScore = -1;
+
+                  for (
+                    let level = 0;
+                    level < 14 &&
+                    current;
+                    level += 1
+                  ) {
+                    const text =
+                      cleanText(
+                        current.innerText
+                      );
+
+                    const ids =
+                      uniqueThreadIds(
+                        current
+                      );
+
+                    if (
+                      ids.size === 1 &&
+                      ids.has(threadId)
+                    ) {
+                      let score = 0;
+
+                      if (
+                        /\bPost ID:\s*@OP\+/i.test(
+                          text
+                        )
+                      ) {
+                        score += 100;
+                      }
+
+                      if (
+                        /\b\d+\s+views\b/i.test(
+                          text
+                        )
+                      ) {
+                        score += 40;
+                      }
+
+                      if (
+                        /\b\d+\s+(?:reply|replies|comment|comments)\b/i.test(
+                          text
+                        ) ||
+                        /\bno replies yet\b/i.test(
+                          text
+                        )
+                      ) {
+                        score += 30;
+                      }
+
+                      if (
+                        /\bby\s+[A-Za-z0-9_-]+\b/i.test(
+                          text
+                        )
+                      ) {
+                        score += 20;
+                      }
+
+                      if (
+                        text.length >= 80 &&
+                        text.length <= 4000
+                      ) {
+                        score += 10;
+                      }
+
+                      score +=
+                        Math.min(
+                          text.length,
+                          2000
+                        ) / 2000;
+
+                      if (
+                        score > bestScore
+                      ) {
+                        best = current;
+                        bestScore = score;
+                      }
+
+                      if (
+                        score >= 170
+                      ) {
+                        return current;
+                      }
+                    }
+
+                    current =
+                      current.parentElement;
+                  }
+
+                  return (
+                    best ||
+                    link.parentElement ||
+                    link
+                  );
+                }
+
+                const results = [];
                 const seenThreadIds =
                   new Set();
 
@@ -1070,15 +1221,6 @@ jobs:
                       "href"
                     ) || "";
 
-                  const threadMatch =
-                    hrefValue.match(
-                      /^\/t\/([A-Za-z0-9_-]+)/
-                    );
-
-                  if (!threadMatch) {
-                    continue;
-                  }
-
                   if (
                     hrefValue.includes(
                       "#replies"
@@ -1087,26 +1229,13 @@ jobs:
                     continue;
                   }
 
-                  const linkText = (
-                    link.innerText ||
-                    link.textContent ||
-                    ""
-                  )
-                    .replace(/\s+/g, " ")
-                    .trim();
-
-                  if (
-                    /^\d+\s+(?:reply|replies|comment|comments)$/i.test(
-                      linkText
-                    )
-                  ) {
-                    continue;
-                  }
-
                   const threadId =
-                    threadMatch[1];
+                    getThreadIdFromHref(
+                      hrefValue
+                    );
 
                   if (
+                    !threadId ||
                     seenThreadIds.has(
                       threadId
                     )
@@ -1114,43 +1243,31 @@ jobs:
                     continue;
                   }
 
-                  let container =
-                    link;
+                  const linkText =
+                    cleanText(
+                      link.innerText ||
+                      link.textContent
+                    );
 
-                  for (
-                    let level = 0;
-                    level < 8 &&
-                    container;
-                    level += 1
-                  ) {
-                    const text = (
-                      container.innerText ||
-                      ""
+                  if (
+                    !linkText ||
+                    /^\d+\s+(?:reply|replies|comment|comments)$/i.test(
+                      linkText
                     )
-                      .replace(
-                        /\s+/g,
-                        " "
-                      )
-                      .trim();
-
-                    if (
-                      text.length >= 20 &&
-                      text.length <= 3000
-                    ) {
-                      break;
-                    }
-
-                    container =
-                      container.parentElement;
+                  ) {
+                    continue;
                   }
 
-                  const containerText = (
-                    container
-                      ?.innerText ||
-                    ""
-                  )
-                    .replace(/\s+/g, " ")
-                    .trim();
+                  const container =
+                    findTopicCard(
+                      link,
+                      threadId
+                    );
+
+                  const containerText =
+                    cleanText(
+                      container?.innerText
+                    );
 
                   let title =
                     linkText;
@@ -1160,21 +1277,14 @@ jobs:
                     title.length < 3
                   ) {
                     const heading =
-                      container
-                        ?.querySelector(
-                          "h1, h2, h3, h4, strong"
-                        );
+                      container?.querySelector(
+                        "h1, h2, h3, h4, strong"
+                      );
 
-                    title = (
-                      heading
-                        ?.innerText ||
-                      ""
-                    )
-                      .replace(
-                        /\s+/g,
-                        " "
-                      )
-                      .trim();
+                    title =
+                      cleanText(
+                        heading?.innerText
+                      );
                   }
 
                   if (
@@ -1204,33 +1314,49 @@ jobs:
                     ).href;
 
                   let description =
-                    containerText ||
-                    title;
+                    containerText;
+
+                  if (
+                    description.startsWith(
+                      title
+                    )
+                  ) {
+                    description =
+                      description.slice(
+                        title.length
+                      );
+                  } else {
+                    description =
+                      description.replace(
+                        title,
+                        ""
+                      );
+                  }
 
                   description =
                     description
                       .replace(
-                        title,
+                        /^\s*•••\s*/,
                         ""
                       )
-                      .replace(
-                        /\s+/g,
-                        " "
-                      )
+                      .replace(/\s+/g, " ")
                       .trim();
 
                   if (
                     description.length >
-                    1500
+                    2000
                   ) {
                     description =
                       description.slice(
                         0,
-                        1497
+                        1997
                       ) + "...";
                   }
 
                   const dateMatch =
+                    containerText.match(
+                      /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:,\s*\d{4})?\b/i
+                    ) ||
                     containerText.match(
                       /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?\b/i
                     ) ||
@@ -1241,6 +1367,9 @@ jobs:
                   const repliesMatch =
                     containerText.match(
                       /\b\d+\s+(?:reply|replies|comment|comments)\b/i
+                    ) ||
+                    containerText.match(
+                      /\bno replies yet\b/i
                     );
 
                   seenThreadIds.add(
