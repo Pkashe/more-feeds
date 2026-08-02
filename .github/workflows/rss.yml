@@ -78,9 +78,11 @@ jobs:
               pathPattern:
                 /^\/m\/[^/]+\/?$/,
               datePatterns: [
+                /Opened\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
                 /Opens\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
                 /Opening\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
-                /In Theaters\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i
+                /In Theaters\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
+                /Re-released\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i
               ]
             },
             {
@@ -169,9 +171,7 @@ jobs:
             }
 
             if (Array.isArray(value)) {
-              return value
-                .map(valueText)
-                .join("");
+              return value.map(valueText).join("");
             }
 
             if (typeof value === "object") {
@@ -206,36 +206,23 @@ jobs:
               : now.getUTCFullYear();
 
             let parsed = new Date(
-              `${match[1]} ${match[2]}, ` +
-              `${year} 12:00:00 UTC`
+              `${match[1]} ${match[2]}, ${year} 12:00:00 UTC`
             );
 
-            if (
-              Number.isNaN(
-                parsed.getTime()
-              )
-            ) {
+            if (Number.isNaN(parsed.getTime())) {
               return null;
             }
 
             if (!match[3]) {
               const futureLimit =
                 now.getTime() +
-                60 *
-                  24 *
-                  60 *
-                  60 *
-                  1000;
+                60 * 24 * 60 * 60 * 1000;
 
-              if (
-                parsed.getTime() >
-                futureLimit
-              ) {
+              if (parsed.getTime() > futureLimit) {
                 year -= 1;
 
                 parsed = new Date(
-                  `${match[1]} ${match[2]}, ` +
-                  `${year} 12:00:00 UTC`
+                  `${match[1]} ${match[2]}, ${year} 12:00:00 UTC`
                 );
               }
             }
@@ -254,21 +241,13 @@ jobs:
                xmlns:dc="http://purl.org/dc/elements/1.1/"
                xmlns:content="http://purl.org/rss/1.0/modules/content/">
             <channel>
-              <title>${escapeXml(
-                feed.feedTitle
-              )}</title>
-              <link>${escapeXml(
-                feed.pageUrl
-              )}</link>
-              <description>${escapeXml(
-                feed.description
-              )}</description>
+              <title>${escapeXml(feed.feedTitle)}</title>
+              <link>${escapeXml(feed.pageUrl)}</link>
+              <description>${escapeXml(feed.description)}</description>
               <language>en</language>
               <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
               <atom:link
-                href="${siteBase}/${escapeXml(
-                  feed.outputFile
-                )}"
+                href="${siteBase}/${escapeXml(feed.outputFile)}"
                 rel="self"
                 type="application/rss+xml" />
           ${items}
@@ -283,9 +262,7 @@ jobs:
             try {
               const response =
                 await fetch(
-                  `${siteBase}/` +
-                    `${feed.outputFile}` +
-                    `?cache=${Date.now()}`,
+                  `${siteBase}/${feed.outputFile}?cache=${Date.now()}`,
                   {
                     headers: {
                       "cache-control":
@@ -317,371 +294,18 @@ jobs:
               );
 
               console.log(
-                `Restored previous ` +
-                `${feed.outputFile}.`
+                `Restored previous ${feed.outputFile}.`
               );
 
               return true;
             } catch (error) {
               console.warn(
-                `Could not restore previous ` +
-                  `${feed.outputFile}:`,
+                `Could not restore previous ${feed.outputFile}:`,
                 error.message || error
               );
 
               return false;
             }
-          }
-
-          function normaliseComparisonText(
-            value
-          ) {
-            return String(value || "")
-              .toLowerCase()
-              .replace(/&/g, " and ")
-              .replace(/['’]/g, "")
-              .replace(/[^a-z0-9]+/g, " ")
-              .replace(/\s+/g, " ")
-              .trim();
-          }
-
-          function getSlugFromUrl(href) {
-            try {
-              const url = new URL(href);
-
-              const parts =
-                url.pathname
-                  .split("/")
-                  .filter(Boolean);
-
-              return parts.at(-1) || "";
-            } catch {
-              return "";
-            }
-          }
-
-          function titleMatchesSlug(
-            title,
-            href
-          ) {
-            const titleValue =
-              normaliseComparisonText(title);
-
-            const slugValue =
-              normaliseComparisonText(
-                getSlugFromUrl(href)
-                  .replace(/_\d{4}$/, "")
-                  .replace(/_\d+$/, "")
-              );
-
-            if (
-              !titleValue ||
-              !slugValue
-            ) {
-              return false;
-            }
-
-            if (
-              titleValue === slugValue
-            ) {
-              return true;
-            }
-
-            if (
-              slugValue.includes(
-                titleValue
-              ) ||
-              titleValue.includes(
-                slugValue
-              )
-            ) {
-              return true;
-            }
-
-            const titleWords =
-              titleValue
-                .split(" ")
-                .filter(
-                  (word) =>
-                    word.length >= 3
-                );
-
-            const slugWords =
-              new Set(
-                slugValue
-                  .split(" ")
-                  .filter(
-                    (word) =>
-                      word.length >= 3
-                  )
-              );
-
-            if (
-              !titleWords.length ||
-              !slugWords.size
-            ) {
-              return false;
-            }
-
-            const matchingWords =
-              titleWords.filter(
-                (word) =>
-                  slugWords.has(word)
-              ).length;
-
-            return (
-              matchingWords >=
-              Math.min(
-                2,
-                titleWords.length
-              )
-            );
-          }
-
-          function titleFromSlug(href) {
-            const slug =
-              getSlugFromUrl(href)
-                .replace(/_\d{4}$/, "")
-                .replace(/_\d+$/, "");
-
-            if (!slug) {
-              return "";
-            }
-
-            const smallWords =
-              new Set([
-                "a",
-                "an",
-                "and",
-                "as",
-                "at",
-                "but",
-                "by",
-                "for",
-                "from",
-                "in",
-                "into",
-                "nor",
-                "of",
-                "on",
-                "or",
-                "the",
-                "to",
-                "with"
-              ]);
-
-            return slug
-              .split("_")
-              .filter(Boolean)
-              .map(
-                (word, index) => {
-                  const lower =
-                    word.toLowerCase();
-
-                  if (
-                    index > 0 &&
-                    smallWords.has(
-                      lower
-                    )
-                  ) {
-                    return lower;
-                  }
-
-                  return (
-                    lower.charAt(0)
-                      .toUpperCase() +
-                    lower.slice(1)
-                  );
-                }
-              )
-              .join(" ");
-          }
-
-          function cleanRottenTomatoesLinkTitle(
-            value
-          ) {
-            let title =
-              String(value || "")
-                .replace(/\s+/g, " ")
-                .trim();
-
-            title = title
-              .replace(
-                /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                ""
-              )
-              .replace(
-                /Opens\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                ""
-              )
-              .replace(
-                /Opening\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                ""
-              )
-              .replace(
-                /In Theaters\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                ""
-              )
-              .replace(
-                /Streaming\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                ""
-              )
-              .replace(
-                /Available\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                ""
-              )
-              .replace(
-                /Premieres\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                ""
-              )
-              .replace(
-                /Re-released\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                ""
-              )
-              .replace(
-                /Opened\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                ""
-              )
-              .replace(
-                /^(?:\d{1,3}%\s*)+/,
-                ""
-              )
-              .replace(
-                /\s*Watchlist\s*$/i,
-                ""
-              )
-              .replace(/\s+/g, " ")
-              .trim();
-
-            const linkToIndex =
-              title.toLowerCase()
-                .indexOf(" link to ");
-
-            if (linkToIndex > 0) {
-              title =
-                title.slice(
-                  0,
-                  linkToIndex
-                ).trim();
-            } else {
-              title = title
-                .replace(
-                  /^link to\s+/i,
-                  ""
-                )
-                .trim();
-            }
-
-            return title;
-          }
-
-          function repairMismatchedTitles(
-            entries,
-            feed
-          ) {
-            if (
-              feed.outputFile ===
-              "rottentomatoes_tv_v2.xml"
-            ) {
-              return entries;
-            }
-
-            const grouped =
-              new Map();
-
-            for (const entry of entries) {
-              const key =
-                normaliseComparisonText(
-                  entry.title
-                );
-
-              if (!grouped.has(key)) {
-                grouped.set(key, []);
-              }
-
-              grouped
-                .get(key)
-                .push(entry);
-            }
-
-            for (
-              const [
-                titleKey,
-                group
-              ] of grouped.entries()
-            ) {
-              if (
-                !titleKey ||
-                group.length < 2
-              ) {
-                continue;
-              }
-
-              const matching =
-                group.filter(
-                  (entry) =>
-                    titleMatchesSlug(
-                      entry.title,
-                      entry.href
-                    )
-                );
-
-              if (
-                matching.length !== 1
-              ) {
-                continue;
-              }
-
-              for (const entry of group) {
-                if (
-                  titleMatchesSlug(
-                    entry.title,
-                    entry.href
-                  )
-                ) {
-                  continue;
-                }
-
-                let correctedTitle = "";
-
-                const cleanedLinkTitle =
-                  cleanRottenTomatoesLinkTitle(
-                    entry.linkTitle
-                  );
-
-                if (
-                  cleanedLinkTitle &&
-                  titleMatchesSlug(
-                    cleanedLinkTitle,
-                    entry.href
-                  )
-                ) {
-                  correctedTitle =
-                    cleanedLinkTitle;
-                } else {
-                  correctedTitle =
-                    titleFromSlug(
-                      entry.href
-                    );
-                }
-
-                if (!correctedTitle) {
-                  continue;
-                }
-
-                console.log(
-                  `Corrected mismatched title: ` +
-                    `"${entry.title}" -> ` +
-                    `"${correctedTitle}" ` +
-                    `(${entry.href})`
-                );
-
-                entry.title =
-                  correctedTitle;
-              }
-            }
-
-            return entries;
           }
 
           async function extractRottenTomatoesEntries(
@@ -698,17 +322,14 @@ jobs:
             );
 
             await page.waitForSelector(
-              'a[href^="/tv/"], ' +
-                'a[href^="/m/"]',
+              'a[href^="/tv/"], a[href^="/m/"]',
               {
                 state: "attached",
                 timeout: 60000
               }
             );
 
-            await page.waitForTimeout(
-              5000
-            );
+            await page.waitForTimeout(5000);
 
             return page.evaluate(
               ({
@@ -729,93 +350,213 @@ jobs:
                       )
                   );
 
-                function cleanLinkTitle(
-                  value
-                ) {
-                  let title =
-                    String(value || "")
-                      .replace(/\s+/g, " ")
-                      .trim();
+                function cleanText(value) {
+                  return String(value || "")
+                    .replace(/\s+/g, " ")
+                    .trim();
+                }
 
-                  title = title
+                function findDate(text) {
+                  for (
+                    const pattern of
+                    datePatterns
+                  ) {
+                    const match =
+                      text.match(pattern);
+
+                    if (match) {
+                      return match[0];
+                    }
+                  }
+
+                  return "";
+                }
+
+                function removeDate(
+                  text,
+                  displayDate
+                ) {
+                  if (!displayDate) {
+                    return text;
+                  }
+
+                  return text
                     .replace(
-                      /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                      ""
+                      displayDate,
+                      " "
+                    )
+                    .replace(/\s+/g, " ")
+                    .trim();
+                }
+
+                function removeScores(text) {
+                  let cleaned =
+                    String(text || "");
+
+                  cleaned = cleaned
+                    .replace(
+                      /(?:^|\s)\d{1,3}%/g,
+                      " "
                     )
                     .replace(
-                      /Opens\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                      ""
-                    )
-                    .replace(
-                      /Opening\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                      ""
-                    )
-                    .replace(
-                      /In Theaters\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                      ""
-                    )
-                    .replace(
-                      /Streaming\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                      ""
-                    )
-                    .replace(
-                      /Available\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                      ""
-                    )
-                    .replace(
-                      /Premieres\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                      ""
-                    )
-                    .replace(
-                      /Re-released\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                      ""
-                    )
-                    .replace(
-                      /Opened\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/gi,
-                      ""
-                    )
-                    .replace(
-                      /^(?:\d{1,3}%\s*)+/,
-                      ""
-                    )
-                    .replace(
-                      /\s*Watchlist\s*$/i,
-                      ""
+                      /\bWatchlist\b/gi,
+                      " "
                     )
                     .replace(/\s+/g, " ")
                     .trim();
 
+                  return cleaned;
+                }
+
+                function removeAccessibilityText(
+                  text
+                ) {
+                  let cleaned =
+                    String(text || "")
+                      .replace(/\s+/g, " ")
+                      .trim();
+
                   const linkToIndex =
-                    title.toLowerCase()
+                    cleaned
+                      .toLowerCase()
                       .indexOf(" link to ");
 
                   if (linkToIndex > 0) {
-                    title =
-                      title.slice(
-                        0,
-                        linkToIndex
-                      ).trim();
-                  } else {
-                    title = title
-                      .replace(
-                        /^link to\s+/i,
-                        ""
-                      )
-                      .trim();
+                    cleaned =
+                      cleaned
+                        .slice(
+                          0,
+                          linkToIndex
+                        )
+                        .trim();
                   }
 
-                  return title;
+                  cleaned = cleaned
+                    .replace(
+                      /^link to\s+/i,
+                      ""
+                    )
+                    .trim();
+
+                  return cleaned;
+                }
+
+                function getCardContainer(
+                  link
+                ) {
+                  const directCard =
+                    link.closest(
+                      [
+                        "media-list-item",
+                        "tile-dynamic",
+                        '[data-qa="discovery-media-list-item"]',
+                        '[data-qa="discovery-media-list-item-caption"]',
+                        "article"
+                      ].join(",")
+                    );
+
+                  if (directCard) {
+                    return directCard;
+                  }
+
+                  let current =
+                    link.parentElement;
+
+                  for (
+                    let level = 0;
+                    level < 10 &&
+                    current;
+                    level += 1
+                  ) {
+                    const matchingLinks =
+                      Array.from(
+                        current.querySelectorAll(
+                          'a[href^="/tv/"], a[href^="/m/"]'
+                        )
+                      ).filter(
+                        (candidate) => {
+                          const href =
+                            candidate.getAttribute(
+                              "href"
+                            ) || "";
+
+                          let url;
+
+                          try {
+                            url = new URL(
+                              href,
+                              window.location.origin
+                            );
+                          } catch {
+                            return false;
+                          }
+
+                          if (
+                            !pathPattern.test(
+                              url.pathname
+                            )
+                          ) {
+                            return false;
+                          }
+
+                          const text =
+                            cleanText(
+                              candidate.innerText ||
+                              candidate.textContent
+                            );
+
+                          return Boolean(
+                            findDate(text)
+                          );
+                        }
+                      );
+
+                    if (
+                      matchingLinks.length ===
+                      1
+                    ) {
+                      return current;
+                    }
+
+                    current =
+                      current.parentElement;
+                  }
+
+                  return link.parentElement;
+                }
+
+                function getPoster(
+                  container,
+                  link
+                ) {
+                  const directImage =
+                    link.querySelector(
+                      "rt-img.posterImage, img"
+                    );
+
+                  if (directImage) {
+                    return directImage;
+                  }
+
+                  return (
+                    container?.querySelector(
+                      "rt-img.posterImage, " +
+                      'img[data-qa*="poster"], ' +
+                      'img[class*="poster"], ' +
+                      "img"
+                    ) || null
+                  );
                 }
 
                 const results = [];
                 const seen = new Set();
 
-                const links = Array.from(
-                  document.querySelectorAll(
-                    'a[href^="/tv/"], ' +
-                      'a[href^="/m/"]'
-                  )
-                );
+                const links =
+                  Array.from(
+                    document.querySelectorAll(
+                      'a[href^="/tv/"], a[href^="/m/"]'
+                    )
+                  );
 
                 for (const link of links) {
                   const hrefValue =
@@ -842,113 +583,89 @@ jobs:
                     continue;
                   }
 
+                  const linkText =
+                    cleanText(
+                      link.innerText ||
+                      link.textContent
+                    );
+
+                  const displayDate =
+                    findDate(linkText);
+
+                  /*
+                   * Only a genuine discovery card caption
+                   * contains the relevant release/episode
+                   * date. Poster links and hidden related
+                   * links are rejected here.
+                   */
+                  if (!displayDate) {
+                    continue;
+                  }
+
                   const href = url.href;
 
                   if (seen.has(href)) {
                     continue;
                   }
 
-                  let container = link;
-                  let poster = null;
-
-                  for (
-                    let level = 0;
-                    level < 12 &&
-                    container;
-                    level += 1
-                  ) {
-                    poster =
-                      container.querySelector?.(
-                        "rt-img.posterImage"
-                      );
-
-                    if (poster) {
-                      break;
-                    }
-
-                    container =
-                      container.parentElement;
-                  }
-
-                  const posterTitle = (
-                    poster?.getAttribute(
-                      "alt"
-                    ) || ""
-                  )
-                    .replace(/\s+/g, " ")
-                    .trim();
-
-                  const linkText = (
-                    link.innerText ||
-                    link.textContent ||
-                    ""
-                  )
-                    .replace(/\s+/g, " ")
-                    .trim();
-
-                  const containerText = (
-                    container?.innerText ||
-                    ""
-                  )
-                    .replace(/\s+/g, " ")
-                    .trim();
-
-                  let displayDate = "";
-
-                  for (
-                    const pattern of
-                    datePatterns
-                  ) {
-                    const match =
-                      containerText.match(
-                        pattern
-                      );
-
-                    if (match) {
-                      displayDate =
-                        match[0];
-
-                      break;
-                    }
-                  }
-
-                  const linkTitle =
-                    cleanLinkTitle(
-                      linkText
+                  let title =
+                    removeDate(
+                      linkText,
+                      displayDate
                     );
 
-                  let title =
-                    posterTitle;
+                  title =
+                    removeScores(title);
 
-                  if (!title) {
-                    title =
-                      linkTitle;
-                  }
+                  title =
+                    removeAccessibilityText(
+                      title
+                    );
 
                   if (!title) {
                     continue;
                   }
 
+                  const container =
+                    getCardContainer(
+                      link
+                    );
+
+                  const poster =
+                    getPoster(
+                      container,
+                      link
+                    );
+
                   const rawImage =
                     poster?.getAttribute(
                       "src"
-                    ) || "";
+                    ) ||
+                    poster?.getAttribute(
+                      "data-src"
+                    ) ||
+                    "";
 
-                  const image =
+                  let image = "";
+
+                  if (
                     rawImage &&
                     rawImage !== "none"
-                      ? new URL(
-                          rawImage,
-                          window.location
-                            .origin
-                        ).href
-                      : "";
+                  ) {
+                    try {
+                      image = new URL(
+                        rawImage,
+                        window.location.origin
+                      ).href;
+                    } catch {
+                      image = "";
+                    }
+                  }
 
                   seen.add(href);
 
                   results.push({
                     title,
-                    linkTitle,
                     href,
                     image,
                     displayDate
@@ -962,8 +679,7 @@ jobs:
               },
               {
                 pathPatternSource:
-                  feed.pathPattern
-                    .source,
+                  feed.pathPattern.source,
 
                 datePatternSources:
                   feed.datePatterns.map(
@@ -995,9 +711,7 @@ jobs:
                   entry.image
                     ? `
                 <media:content
-                  url="${escapeXml(
-                    entry.image
-                  )}"
+                  url="${escapeXml(entry.image)}"
                   medium="image" />`
                     : "";
 
@@ -1063,9 +777,7 @@ jobs:
               }
             );
 
-            await page.waitForTimeout(
-              5000
-            );
+            await page.waitForTimeout(5000);
 
             const pageTitle =
               await page
@@ -1084,8 +796,7 @@ jobs:
               )
             ) {
               throw new Error(
-                "TheLayoff returned " +
-                  "a verification page."
+                "TheLayoff returned a verification page."
               );
             }
 
@@ -1098,8 +809,7 @@ jobs:
 
             if (!threadCount) {
               throw new Error(
-                "No TheLayoff discussion " +
-                  "links were found."
+                "No TheLayoff discussion links were found."
               );
             }
 
@@ -1108,11 +818,12 @@ jobs:
               const seenThreadIds =
                 new Set();
 
-              const links = Array.from(
-                document.querySelectorAll(
-                  'a[href^="/t/"]'
-                )
-              );
+              const links =
+                Array.from(
+                  document.querySelectorAll(
+                    'a[href^="/t/"]'
+                  )
+                );
 
               for (const link of links) {
                 const hrefValue =
@@ -1205,8 +916,7 @@ jobs:
                 ) {
                   const heading =
                     container?.querySelector(
-                      "h1, h2, h3, " +
-                        "h4, strong"
+                      "h1, h2, h3, h4, strong"
                     );
 
                   title = (
@@ -1227,9 +937,7 @@ jobs:
                   continue;
                 }
 
-                if (
-                  title.length > 250
-                ) {
+                if (title.length > 250) {
                   title =
                     title.slice(
                       0,
@@ -1250,10 +958,7 @@ jobs:
                 description =
                   description
                     .replace(title, "")
-                    .replace(
-                      /\s+/g,
-                      " "
-                    )
+                    .replace(/\s+/g, " ")
                     .trim();
 
                 if (
@@ -1368,8 +1073,7 @@ jobs:
             ) {
               try {
                 console.log(
-                  `Trying Boxden RSS: ` +
-                    `${sourceUrl}`
+                  `Trying Boxden RSS: ${sourceUrl}`
                 );
 
                 const response =
@@ -1379,32 +1083,24 @@ jobs:
                       redirect: "follow",
                       headers: {
                         accept:
-                          "application/rss+xml, " +
-                          "application/xml, " +
-                          "text/xml, */*",
+                          "application/rss+xml, application/xml, text/xml, */*",
 
                         "user-agent":
-                          "Mozilla/5.0 " +
-                          "(Windows NT 10.0; " +
-                          "Win64; x64) " +
-                          "AppleWebKit/537.36 " +
-                          "Chrome/124.0.0.0 " +
-                          "Safari/537.36"
+                          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                          "AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
                       }
                     }
                   );
 
                 if (!response.ok) {
                   throw new Error(
-                    `HTTP ` +
-                      `${response.status}`
+                    `HTTP ${response.status}`
                   );
                 }
 
                 const bytes =
                   new Uint8Array(
-                    await response
-                      .arrayBuffer()
+                    await response.arrayBuffer()
                   );
 
                 const xml =
@@ -1417,31 +1113,24 @@ jobs:
                   !xml.includes("<item>")
                 ) {
                   throw new Error(
-                    "Response was not " +
-                      "a usable RSS feed"
+                    "Response was not a usable RSS feed"
                   );
                 }
 
                 console.log(
-                  `Boxden RSS loaded from ` +
-                    `${sourceUrl}.`
+                  `Boxden RSS loaded from ${sourceUrl}.`
                 );
 
                 return xml;
               } catch (error) {
                 errors.push(
-                  `${sourceUrl}: ` +
-                    `${
-                      error.message ||
-                      error
-                    }`
+                  `${sourceUrl}: ${error.message || error}`
                 );
               }
             }
 
             throw new Error(
-              "All Boxden RSS " +
-                "sources failed: " +
+              "All Boxden RSS sources failed: " +
                 errors.join(" | ")
             );
           }
@@ -1474,8 +1163,7 @@ jobs:
               parser.parse(xml);
 
             const rawItems =
-              parsed?.rss
-                ?.channel?.item;
+              parsed?.rss?.channel?.item;
 
             const items =
               Array.isArray(rawItems)
@@ -1513,10 +1201,7 @@ jobs:
                       valueText(
                         candidate
                       )
-                        .replace(
-                          /\s+/g,
-                          " "
-                        )
+                        .replace(/\s+/g, " ")
                         .trim()
                         .toLowerCase();
 
@@ -1606,9 +1291,7 @@ jobs:
 
             if (!results.length) {
               throw new Error(
-                "The Boxden RSS loaded, " +
-                  "but it contained no " +
-                  "TV / Movies items."
+                "The Boxden RSS loaded, but it contained no TV / Movies items."
               );
             }
 
@@ -1685,8 +1368,7 @@ jobs:
           }) {
             try {
               console.log(
-                `Processing ` +
-                  `${feed.feedTitle}...`
+                `Processing ${feed.feedTitle}...`
               );
 
               const xml =
@@ -1703,18 +1385,16 @@ jobs:
               );
 
               console.log(
-                `Generated ` +
-                  `${feed.outputFile}.`
+                `Generated ${feed.outputFile}.`
               );
             } catch (error) {
               console.warn(
-                `${feed.feedTitle} ` +
-                  `was skipped:`
+                `${feed.feedTitle} was skipped:`
               );
 
               console.warn(
                 error.message ||
-                  error
+                error
               );
 
               if (
@@ -1727,17 +1407,11 @@ jobs:
                 );
 
                 console.warn(
-                  `Kept the last ` +
-                    `successful ` +
-                    `${feed.outputFile}.`
+                  `Kept the last successful ${feed.outputFile}.`
                 );
               } else {
                 console.warn(
-                  `No previous ` +
-                    `${feed.outputFile} ` +
-                    `was available. ` +
-                    `Other feeds will ` +
-                    `still publish.`
+                  `No previous ${feed.outputFile} was available.`
                 );
               }
             }
@@ -1753,20 +1427,17 @@ jobs:
               const context =
                 await browser.newContext({
                   userAgent:
-                    "Mozilla/5.0 " +
-                    "(Windows NT 10.0; " +
-                    "Win64; x64) " +
-                    "AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) " +
-                    "Chrome/124.0.0.0 " +
-                    "Safari/537.36",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                    "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                    "Chrome/124.0.0.0 Safari/537.36",
 
                   viewport: {
                     width: 1440,
                     height: 1600
                   },
 
-                  locale: "en-US"
+                  locale:
+                    "en-US"
                 });
 
               fs.mkdirSync(
@@ -1784,37 +1455,27 @@ jobs:
                 rottenTomatoesFeeds
               ) {
                 console.log(
-                  `Processing ` +
-                    `${feed.feedTitle}...`
+                  `Processing ${feed.feedTitle}...`
                 );
 
                 const page =
                   await context.newPage();
 
                 try {
-                  const extractedEntries =
+                  const entries =
                     await extractRottenTomatoesEntries(
                       page,
                       feed
                     );
 
-                  const entries =
-                    repairMismatchedTitles(
-                      extractedEntries,
-                      feed
-                    );
-
                   if (!entries.length) {
                     throw new Error(
-                      `No entries found ` +
-                        `for ` +
-                        `${feed.feedTitle}.`
+                      `No entries found for ${feed.feedTitle}.`
                     );
                   }
 
                   fs.writeFileSync(
-                    `public/` +
-                      `${feed.outputFile}`,
+                    `public/${feed.outputFile}`,
                     createRottenTomatoesRss(
                       feed,
                       entries
@@ -1827,19 +1488,15 @@ jobs:
                   );
 
                   console.log(
-                    `Generated ` +
-                      `${entries.length} ` +
-                      `entries for ` +
-                      `${feed.outputFile}.`
+                    `Generated ${entries.length} entries for ${feed.outputFile}.`
                   );
 
                   for (
                     const entry of
-                    entries.slice(0, 10)
+                    entries.slice(0, 12)
                   ) {
                     console.log(
-                      `- ${entry.title}: ` +
-                        `${entry.href}`
+                      `- ${entry.title}: ${entry.href}`
                     );
                   }
                 } finally {
@@ -1848,7 +1505,9 @@ jobs:
               }
 
               await generateOptionalFeed({
-                feed: layoffFeed,
+                feed:
+                  layoffFeed,
+
                 generatedFeeds,
 
                 generator:
@@ -1862,13 +1521,9 @@ jobs:
                           page
                         );
 
-                      if (
-                        !entries.length
-                      ) {
+                      if (!entries.length) {
                         throw new Error(
-                          "No TheLayoff " +
-                            "entries were " +
-                            "found."
+                          "No TheLayoff entries were found."
                         );
                       }
 
@@ -1882,7 +1537,9 @@ jobs:
               });
 
               await generateOptionalFeed({
-                feed: boxdenFeed,
+                feed:
+                  boxdenFeed,
+
                 generatedFeeds,
 
                 generator:
@@ -1891,21 +1548,8 @@ jobs:
                       await extractBoxdenEntries();
 
                     console.log(
-                      `Found ` +
-                        `${entries.length} ` +
-                        `Boxden TV / ` +
-                        `Movies items.`
+                      `Found ${entries.length} Boxden TV / Movies items.`
                     );
-
-                    for (
-                      const entry of
-                      entries.slice(0, 5)
-                    ) {
-                      console.log(
-                        `- ${entry.title}: ` +
-                          `${entry.link}`
-                      );
-                    }
 
                     return createBoxdenRss(
                       entries
