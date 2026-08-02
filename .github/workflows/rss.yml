@@ -24,7 +24,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
@@ -35,26 +35,33 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install Playwright
+      - name: Install dependencies
         run: |
-          npm install --no-save playwright
+          npm install --no-save playwright fast-xml-parser
           npx playwright install --with-deps chromium
 
       - name: Generate RSS feeds
         run: |
           node <<'NODE'
           const { chromium } = require("playwright");
+          const { XMLParser } = require("fast-xml-parser");
           const fs = require("fs");
+
+          const siteBase =
+            "https://pkashe.github.io/more-feeds";
 
           const rottenTomatoesFeeds = [
             {
-              feedTitle: "Rotten Tomatoes - New TV Shows",
+              feedTitle:
+                "Rotten Tomatoes - New TV Shows",
               description:
                 "Newest TV shows listed by Rotten Tomatoes",
               pageUrl:
                 "https://www.rottentomatoes.com/browse/tv_series_browse/sort:newest",
-              outputFile: "rottentomatoes_tv_v2.xml",
-              pathPattern: /^\/tv\/[^/]+\/?$/,
+              outputFile:
+                "rottentomatoes_tv_v2.xml",
+              pathPattern:
+                /^\/tv\/[^/]+\/?$/,
               datePatterns: [
                 /Latest Episode:\s*[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i
               ]
@@ -68,7 +75,8 @@ jobs:
                 "https://www.rottentomatoes.com/browse/movies_in_theaters/sort:newest",
               outputFile:
                 "rottentomatoes_theaters_v2.xml",
-              pathPattern: /^\/m\/[^/]+\/?$/,
+              pathPattern:
+                /^\/m\/[^/]+\/?$/,
               datePatterns: [
                 /Opens\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
                 /Opening\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
@@ -84,7 +92,8 @@ jobs:
                 "https://www.rottentomatoes.com/browse/movies_at_home/sort:newest",
               outputFile:
                 "rottentomatoes_at_home_v2.xml",
-              pathPattern: /^\/m\/[^/]+\/?$/,
+              pathPattern:
+                /^\/m\/[^/]+\/?$/,
               datePatterns: [
                 /Streaming\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
                 /Available\s+[A-Za-z]{3}\s+\d{1,2}(?:,\s*\d{4})?/i,
@@ -94,11 +103,30 @@ jobs:
           ];
 
           const layoffFeed = {
-            feedTitle: "ResMed - TheLayoff",
+            feedTitle:
+              "ResMed - TheLayoff",
             description:
               "Latest ResMed discussions from TheLayoff",
-            pageUrl: "https://www.thelayoff.com/resmed",
-            outputFile: "resmed_thelayoff_v2.xml"
+            pageUrl:
+              "https://www.thelayoff.com/resmed",
+            outputFile:
+              "resmed_thelayoff_v2.xml"
+          };
+
+          const boxdenFeed = {
+            feedTitle:
+              "Boxden - TV / Movies",
+            description:
+              "Latest Boxden TV / Movies discussions",
+            pageUrl:
+              "https://boxden.com/forumdisplay.php?f=218",
+            outputFile:
+              "boxden_tv_movies_v2.xml",
+            sourceUrls: [
+              "http://slumz.boxden.com/external.php?type=RSS2&count=100",
+              "https://slumz.boxden.com/external.php?type=RSS2&count=100",
+              "http://slumz.boxden.com/external.php?type=RSS2"
+            ]
           };
 
           function cleanXml(value) {
@@ -124,10 +152,37 @@ jobs:
             );
           }
 
-          function normaliseText(value) {
-            return String(value ?? "")
-              .replace(/\s+/g, " ")
-              .trim();
+          function valueText(value) {
+            if (
+              value === null ||
+              value === undefined
+            ) {
+              return "";
+            }
+
+            if (
+              typeof value === "string" ||
+              typeof value === "number" ||
+              typeof value === "boolean"
+            ) {
+              return String(value);
+            }
+
+            if (Array.isArray(value)) {
+              return value
+                .map(valueText)
+                .join("");
+            }
+
+            if (typeof value === "object") {
+              return (
+                valueText(value["#cdata"]) ||
+                valueText(value["#text"]) ||
+                ""
+              );
+            }
+
+            return "";
           }
 
           function parseDisplayDate(displayDate) {
@@ -135,9 +190,10 @@ jobs:
               return null;
             }
 
-            const match = displayDate.match(
-              /([A-Za-z]{3})\s+(\d{1,2})(?:,\s*(\d{4}))?/i
-            );
+            const match =
+              displayDate.match(
+                /([A-Za-z]{3})\s+(\d{1,2})(?:,\s*(\d{4}))?/i
+              );
 
             if (!match) {
               return null;
@@ -150,23 +206,36 @@ jobs:
               : now.getUTCFullYear();
 
             let parsed = new Date(
-              `${match[1]} ${match[2]}, ${year} 12:00:00 UTC`
+              `${match[1]} ${match[2]}, ` +
+              `${year} 12:00:00 UTC`
             );
 
-            if (Number.isNaN(parsed.getTime())) {
+            if (
+              Number.isNaN(
+                parsed.getTime()
+              )
+            ) {
               return null;
             }
 
             if (!match[3]) {
               const futureLimit =
                 now.getTime() +
-                60 * 24 * 60 * 60 * 1000;
+                60 *
+                  24 *
+                  60 *
+                  60 *
+                  1000;
 
-              if (parsed.getTime() > futureLimit) {
+              if (
+                parsed.getTime() >
+                futureLimit
+              ) {
                 year -= 1;
 
                 parsed = new Date(
-                  `${match[1]} ${match[2]}, ${year} 12:00:00 UTC`
+                  `${match[1]} ${match[2]}, ` +
+                  `${year} 12:00:00 UTC`
                 );
               }
             }
@@ -174,24 +243,121 @@ jobs:
             return parsed;
           }
 
+          function createRssDocument(
+            feed,
+            items
+          ) {
+            return `<?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0"
+               xmlns:atom="http://www.w3.org/2005/Atom"
+               xmlns:media="http://search.yahoo.com/mrss/"
+               xmlns:dc="http://purl.org/dc/elements/1.1/"
+               xmlns:content="http://purl.org/rss/1.0/modules/content/">
+            <channel>
+              <title>${escapeXml(
+                feed.feedTitle
+              )}</title>
+              <link>${escapeXml(
+                feed.pageUrl
+              )}</link>
+              <description>${escapeXml(
+                feed.description
+              )}</description>
+              <language>en</language>
+              <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+              <atom:link
+                href="${siteBase}/${escapeXml(
+                  feed.outputFile
+                )}"
+                rel="self"
+                type="application/rss+xml" />
+          ${items}
+            </channel>
+          </rss>
+          `;
+          }
+
+          async function restorePreviousFeed(
+            feed
+          ) {
+            try {
+              const response =
+                await fetch(
+                  `${siteBase}/` +
+                    `${feed.outputFile}` +
+                    `?cache=${Date.now()}`,
+                  {
+                    headers: {
+                      "cache-control":
+                        "no-cache",
+                      "user-agent":
+                        "Mozilla/5.0"
+                    }
+                  }
+                );
+
+              if (!response.ok) {
+                return false;
+              }
+
+              const xml =
+                await response.text();
+
+              if (
+                !xml.includes("<rss") ||
+                !xml.includes("<item>")
+              ) {
+                return false;
+              }
+
+              fs.writeFileSync(
+                `public/${feed.outputFile}`,
+                xml,
+                "utf8"
+              );
+
+              console.log(
+                `Restored previous ` +
+                `${feed.outputFile}.`
+              );
+
+              return true;
+            } catch (error) {
+              console.warn(
+                `Could not restore previous ` +
+                  `${feed.outputFile}:`,
+                error.message || error
+              );
+
+              return false;
+            }
+          }
+
           async function extractRottenTomatoesEntries(
             page,
             feed
           ) {
-            await page.goto(feed.pageUrl, {
-              waitUntil: "domcontentloaded",
-              timeout: 90000
-            });
+            await page.goto(
+              feed.pageUrl,
+              {
+                waitUntil:
+                  "domcontentloaded",
+                timeout: 90000
+              }
+            );
 
             await page.waitForSelector(
-              'a[href^="/tv/"], a[href^="/m/"]',
+              'a[href^="/tv/"], ' +
+                'a[href^="/m/"]',
               {
                 state: "attached",
                 timeout: 60000
               }
             );
 
-            await page.waitForTimeout(5000);
+            await page.waitForTimeout(
+              5000
+            );
 
             return page.evaluate(
               ({
@@ -199,12 +365,17 @@ jobs:
                 datePatternSources
               }) => {
                 const pathPattern =
-                  new RegExp(pathPatternSource);
+                  new RegExp(
+                    pathPatternSource
+                  );
 
                 const datePatterns =
                   datePatternSources.map(
                     (source) =>
-                      new RegExp(source, "i")
+                      new RegExp(
+                        source,
+                        "i"
+                      )
                   );
 
                 const results = [];
@@ -212,13 +383,16 @@ jobs:
 
                 const links = Array.from(
                   document.querySelectorAll(
-                    'a[href^="/tv/"], a[href^="/m/"]'
+                    'a[href^="/tv/"], ' +
+                      'a[href^="/m/"]'
                   )
                 );
 
                 for (const link of links) {
                   const hrefValue =
-                    link.getAttribute("href") || "";
+                    link.getAttribute(
+                      "href"
+                    ) || "";
 
                   let url;
 
@@ -231,7 +405,11 @@ jobs:
                     continue;
                   }
 
-                  if (!pathPattern.test(url.pathname)) {
+                  if (
+                    !pathPattern.test(
+                      url.pathname
+                    )
+                  ) {
                     continue;
                   }
 
@@ -246,7 +424,8 @@ jobs:
 
                   for (
                     let level = 0;
-                    level < 12 && container;
+                    level < 12 &&
+                    container;
                     level += 1
                   ) {
                     poster =
@@ -263,7 +442,9 @@ jobs:
                   }
 
                   const posterTitle = (
-                    poster?.getAttribute("alt") || ""
+                    poster?.getAttribute(
+                      "alt"
+                    ) || ""
                   ).trim();
 
                   const linkText = (
@@ -275,24 +456,33 @@ jobs:
                     .trim();
 
                   const containerText = (
-                    container?.innerText || ""
+                    container?.innerText ||
+                    ""
                   )
                     .replace(/\s+/g, " ")
                     .trim();
 
                   let displayDate = "";
 
-                  for (const pattern of datePatterns) {
+                  for (
+                    const pattern of
+                    datePatterns
+                  ) {
                     const match =
-                      containerText.match(pattern);
+                      containerText.match(
+                        pattern
+                      );
 
                     if (match) {
-                      displayDate = match[0];
+                      displayDate =
+                        match[0];
+
                       break;
                     }
                   }
 
-                  let title = posterTitle;
+                  let title =
+                    posterTitle;
 
                   if (!title) {
                     title = linkText
@@ -332,14 +522,17 @@ jobs:
                   }
 
                   const rawImage =
-                    poster?.getAttribute("src") || "";
+                    poster?.getAttribute(
+                      "src"
+                    ) || "";
 
                   const image =
                     rawImage &&
                     rawImage !== "none"
                       ? new URL(
                           rawImage,
-                          window.location.origin
+                          window.location
+                            .origin
                         ).href
                       : "";
 
@@ -353,191 +546,23 @@ jobs:
                   });
                 }
 
-                return results.slice(0, 50);
+                return results.slice(
+                  0,
+                  50
+                );
               },
               {
                 pathPatternSource:
-                  feed.pathPattern.source,
+                  feed.pathPattern
+                    .source,
 
                 datePatternSources:
                   feed.datePatterns.map(
-                    (pattern) => pattern.source
+                    (pattern) =>
+                      pattern.source
                   )
               }
             );
-          }
-
-          async function extractLayoffEntries(page) {
-            await page.goto(layoffFeed.pageUrl, {
-              waitUntil: "domcontentloaded",
-              timeout: 90000
-            });
-
-            await page.waitForTimeout(5000);
-
-            const pageTitle =
-              await page.title().catch(() => "");
-
-            const bodyText = await page
-              .locator("body")
-              .innerText()
-              .catch(() => "");
-
-            if (
-              /cloudflare|verify you are human|security verification/i.test(
-                `${pageTitle} ${bodyText}`
-              )
-            ) {
-              throw new Error(
-                "TheLayoff returned a human-verification page."
-              );
-            }
-
-            const threadCount = await page
-              .locator('a[href^="/t/"]')
-              .count();
-
-            if (!threadCount) {
-              throw new Error(
-                "No TheLayoff discussion links were found."
-              );
-            }
-
-            return page.evaluate(() => {
-              const results = [];
-              const seen = new Set();
-
-              const links = Array.from(
-                document.querySelectorAll(
-                  'a[href^="/t/"]'
-                )
-              );
-
-              for (const link of links) {
-                const hrefValue =
-                  link.getAttribute("href") || "";
-
-                if (
-                  !/^\/t\/[A-Za-z0-9_-]+/.test(
-                    hrefValue
-                  )
-                ) {
-                  continue;
-                }
-
-                const href = new URL(
-                  hrefValue,
-                  window.location.origin
-                ).href;
-
-                if (seen.has(href)) {
-                  continue;
-                }
-
-                let container = link;
-
-                for (
-                  let level = 0;
-                  level < 8 && container;
-                  level += 1
-                ) {
-                  const text = (
-                    container.innerText || ""
-                  )
-                    .replace(/\s+/g, " ")
-                    .trim();
-
-                  if (
-                    text.length >= 20 &&
-                    text.length <= 3000
-                  ) {
-                    break;
-                  }
-
-                  container =
-                    container.parentElement;
-                }
-
-                const linkText = (
-                  link.innerText ||
-                  link.textContent ||
-                  ""
-                )
-                  .replace(/\s+/g, " ")
-                  .trim();
-
-                const containerText = (
-                  container?.innerText || ""
-                )
-                  .replace(/\s+/g, " ")
-                  .trim();
-
-                let title = linkText;
-
-                if (!title || title.length < 3) {
-                  const heading =
-                    container?.querySelector(
-                      "h1, h2, h3, h4, strong"
-                    );
-
-                  title = (
-                    heading?.innerText || ""
-                  )
-                    .replace(/\s+/g, " ")
-                    .trim();
-                }
-
-                if (!title || title.length < 3) {
-                  continue;
-                }
-
-                if (title.length > 250) {
-                  title =
-                    title.slice(0, 247) + "...";
-                }
-
-                let description =
-                  containerText || title;
-
-                description = description
-                  .replace(title, "")
-                  .replace(/\s+/g, " ")
-                  .trim();
-
-                if (description.length > 1500) {
-                  description =
-                    description.slice(0, 1497) +
-                    "...";
-                }
-
-                const dateMatch =
-                  containerText.match(
-                    /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?\b/i
-                  ) ||
-                  containerText.match(
-                    /\b\d{1,2}\s+(?:minute|hour|day|week|month|year)s?\s+ago\b/i
-                  );
-
-                const repliesMatch =
-                  containerText.match(
-                    /\b\d+\s+(?:reply|replies|comment|comments)\b/i
-                  );
-
-                seen.add(href);
-
-                results.push({
-                  title,
-                  href,
-                  description,
-                  displayDate:
-                    dateMatch?.[0] || "",
-                  replies:
-                    repliesMatch?.[0] || ""
-                });
-              }
-
-              return results.slice(0, 50);
-            });
           }
 
           function createRottenTomatoesRss(
@@ -551,17 +576,21 @@ jobs:
                     entry.displayDate
                   );
 
-                const pubDate = published
-                  ? `
+                const pubDate =
+                  published
+                    ? `
                 <pubDate>${published.toUTCString()}</pubDate>`
-                  : "";
+                    : "";
 
-                const media = entry.image
-                  ? `
+                const media =
+                  entry.image
+                    ? `
                 <media:content
-                  url="${escapeXml(entry.image)}"
+                  url="${escapeXml(
+                    entry.image
+                  )}"
                   medium="image" />`
-                  : "";
+                    : "";
 
                 const description = [
                   entry.image
@@ -613,7 +642,231 @@ jobs:
             );
           }
 
-          function createLayoffRss(entries) {
+          async function extractLayoffEntries(
+            page
+          ) {
+            await page.goto(
+              layoffFeed.pageUrl,
+              {
+                waitUntil:
+                  "domcontentloaded",
+                timeout: 90000
+              }
+            );
+
+            await page.waitForTimeout(
+              5000
+            );
+
+            const pageTitle =
+              await page
+                .title()
+                .catch(() => "");
+
+            const bodyText =
+              await page
+                .locator("body")
+                .innerText()
+                .catch(() => "");
+
+            if (
+              /cloudflare|verify you are human|security verification/i.test(
+                `${pageTitle} ${bodyText}`
+              )
+            ) {
+              throw new Error(
+                "TheLayoff returned " +
+                  "a verification page."
+              );
+            }
+
+            const threadCount =
+              await page
+                .locator(
+                  'a[href^="/t/"]'
+                )
+                .count();
+
+            if (!threadCount) {
+              throw new Error(
+                "No TheLayoff discussion " +
+                  "links were found."
+              );
+            }
+
+            return page.evaluate(() => {
+              const results = [];
+              const seen = new Set();
+
+              const links = Array.from(
+                document.querySelectorAll(
+                  'a[href^="/t/"]'
+                )
+              );
+
+              for (const link of links) {
+                const hrefValue =
+                  link.getAttribute(
+                    "href"
+                  ) || "";
+
+                if (
+                  !/^\/t\/[A-Za-z0-9_-]+/.test(
+                    hrefValue
+                  )
+                ) {
+                  continue;
+                }
+
+                const href = new URL(
+                  hrefValue,
+                  window.location.origin
+                ).href;
+
+                if (seen.has(href)) {
+                  continue;
+                }
+
+                let container = link;
+
+                for (
+                  let level = 0;
+                  level < 8 &&
+                  container;
+                  level += 1
+                ) {
+                  const text = (
+                    container.innerText ||
+                    ""
+                  )
+                    .replace(/\s+/g, " ")
+                    .trim();
+
+                  if (
+                    text.length >= 20 &&
+                    text.length <= 3000
+                  ) {
+                    break;
+                  }
+
+                  container =
+                    container.parentElement;
+                }
+
+                const linkText = (
+                  link.innerText ||
+                  link.textContent ||
+                  ""
+                )
+                  .replace(/\s+/g, " ")
+                  .trim();
+
+                const containerText = (
+                  container?.innerText ||
+                  ""
+                )
+                  .replace(/\s+/g, " ")
+                  .trim();
+
+                let title = linkText;
+
+                if (
+                  !title ||
+                  title.length < 3
+                ) {
+                  const heading =
+                    container?.querySelector(
+                      "h1, h2, h3, " +
+                        "h4, strong"
+                    );
+
+                  title = (
+                    heading?.innerText ||
+                    ""
+                  )
+                    .replace(/\s+/g, " ")
+                    .trim();
+                }
+
+                if (
+                  !title ||
+                  title.length < 3
+                ) {
+                  continue;
+                }
+
+                if (
+                  title.length > 250
+                ) {
+                  title =
+                    title.slice(
+                      0,
+                      247
+                    ) + "...";
+                }
+
+                let description =
+                  containerText ||
+                  title;
+
+                description =
+                  description
+                    .replace(title, "")
+                    .replace(
+                      /\s+/g,
+                      " "
+                    )
+                    .trim();
+
+                if (
+                  description.length >
+                  1500
+                ) {
+                  description =
+                    description.slice(
+                      0,
+                      1497
+                    ) + "...";
+                }
+
+                const dateMatch =
+                  containerText.match(
+                    /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?\b/i
+                  ) ||
+                  containerText.match(
+                    /\b\d{1,2}\s+(?:minute|hour|day|week|month|year)s?\s+ago\b/i
+                  );
+
+                const repliesMatch =
+                  containerText.match(
+                    /\b\d+\s+(?:reply|replies|comment|comments)\b/i
+                  );
+
+                seen.add(href);
+
+                results.push({
+                  title,
+                  href,
+                  description,
+                  displayDate:
+                    dateMatch?.[0] ||
+                    "",
+                  replies:
+                    repliesMatch?.[0] ||
+                    ""
+                });
+              }
+
+              return results.slice(
+                0,
+                50
+              );
+            });
+          }
+
+          function createLayoffRss(
+            entries
+          ) {
             const items = entries
               .map((entry) => {
                 const description = [
@@ -666,36 +919,388 @@ jobs:
             );
           }
 
-          function createRssDocument(
-            feed,
-            items
+          async function fetchBoxdenXml() {
+            const errors = [];
+
+            for (
+              const sourceUrl of
+              boxdenFeed.sourceUrls
+            ) {
+              try {
+                console.log(
+                  `Trying Boxden RSS: ` +
+                    `${sourceUrl}`
+                );
+
+                const response =
+                  await fetch(
+                    sourceUrl,
+                    {
+                      redirect: "follow",
+                      headers: {
+                        accept:
+                          "application/rss+xml, " +
+                          "application/xml, " +
+                          "text/xml, */*",
+
+                        "user-agent":
+                          "Mozilla/5.0 " +
+                          "(Windows NT 10.0; " +
+                          "Win64; x64) " +
+                          "AppleWebKit/537.36 " +
+                          "Chrome/124.0.0.0 " +
+                          "Safari/537.36"
+                      }
+                    }
+                  );
+
+                if (!response.ok) {
+                  throw new Error(
+                    `HTTP ` +
+                      `${response.status}`
+                  );
+                }
+
+                const bytes =
+                  new Uint8Array(
+                    await response
+                      .arrayBuffer()
+                  );
+
+                const xml =
+                  new TextDecoder(
+                    "windows-1252"
+                  ).decode(bytes);
+
+                if (
+                  !xml.includes("<rss") ||
+                  !xml.includes("<item>")
+                ) {
+                  throw new Error(
+                    "Response was not " +
+                      "a usable RSS feed"
+                  );
+                }
+
+                console.log(
+                  `Boxden RSS loaded from ` +
+                    `${sourceUrl}.`
+                );
+
+                return xml;
+              } catch (error) {
+                errors.push(
+                  `${sourceUrl}: ` +
+                    `${
+                      error.message ||
+                      error
+                    }`
+                );
+              }
+            }
+
+            throw new Error(
+              "All Boxden RSS " +
+                "sources failed: " +
+                errors.join(" | ")
+            );
+          }
+
+          async function extractBoxdenEntries() {
+            const xml =
+              await fetchBoxdenXml();
+
+            const parser =
+              new XMLParser({
+                ignoreAttributes:
+                  false,
+                attributeNamePrefix:
+                  "@_",
+                textNodeName:
+                  "#text",
+                cdataPropName:
+                  "#cdata",
+                processEntities:
+                  true,
+                parseTagValue:
+                  false,
+                parseAttributeValue:
+                  false,
+                trimValues:
+                  false
+              });
+
+            const parsed =
+              parser.parse(xml);
+
+            const rawItems =
+              parsed?.rss
+                ?.channel?.item;
+
+            const items =
+              Array.isArray(rawItems)
+                ? rawItems
+                : rawItems
+                  ? [rawItems]
+                  : [];
+
+            const results = [];
+
+            for (const item of items) {
+              const rawCategories =
+                Array.isArray(
+                  item.category
+                )
+                  ? item.category
+                  : item.category
+                    ? [item.category]
+                    : [];
+
+              const category =
+                rawCategories.find(
+                  (candidate) => {
+                    const domain =
+                      typeof candidate ===
+                      "object"
+                        ? String(
+                            candidate[
+                              "@_domain"
+                            ] || ""
+                          )
+                        : "";
+
+                    const name =
+                      valueText(
+                        candidate
+                      )
+                        .replace(
+                          /\s+/g,
+                          " "
+                        )
+                        .trim()
+                        .toLowerCase();
+
+                    return (
+                      /forumdisplay\.php\?f=218(?:$|&)/i.test(
+                        domain
+                      ) ||
+                      name ===
+                        "tv / movies"
+                    );
+                  }
+                );
+
+              if (!category) {
+                continue;
+              }
+
+              const title =
+                valueText(
+                  item.title
+                ).trim();
+
+              const link =
+                valueText(
+                  item.link
+                ).trim();
+
+              const pubDate =
+                valueText(
+                  item.pubDate
+                ).trim();
+
+              const description =
+                valueText(
+                  item.description
+                ).trim();
+
+              const content =
+                valueText(
+                  item[
+                    "content:encoded"
+                  ]
+                ).trim();
+
+              const creator =
+                valueText(
+                  item["dc:creator"]
+                ).trim();
+
+              const guid =
+                valueText(
+                  item.guid
+                ).trim() || link;
+
+              const categoryName =
+                valueText(
+                  category
+                ).trim() ||
+                "tv / movies";
+
+              const categoryDomain =
+                typeof category ===
+                "object"
+                  ? String(
+                      category[
+                        "@_domain"
+                      ] || ""
+                    )
+                  : "https://boxden.com/forumdisplay.php?f=218";
+
+              if (!title || !link) {
+                continue;
+              }
+
+              results.push({
+                title,
+                link,
+                pubDate,
+                description,
+                content,
+                creator,
+                guid,
+                categoryName,
+                categoryDomain
+              });
+            }
+
+            if (!results.length) {
+              throw new Error(
+                "The Boxden RSS loaded, " +
+                  "but it contained no " +
+                  "TV / Movies items."
+              );
+            }
+
+            return results;
+          }
+
+          function createBoxdenRss(
+            entries
           ) {
-            return `<?xml version="1.0" encoding="UTF-8"?>
-          <rss version="2.0"
-               xmlns:atom="http://www.w3.org/2005/Atom"
-               xmlns:media="http://search.yahoo.com/mrss/">
-            <channel>
-              <title>${escapeXml(
-                feed.feedTitle
-              )}</title>
-              <link>${escapeXml(
-                feed.pageUrl
-              )}</link>
-              <description>${escapeXml(
-                feed.description
-              )}</description>
-              <language>en</language>
-              <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
-              <atom:link
-                href="https://pkashe.github.io/more-feeds/${escapeXml(
-                  feed.outputFile
-                )}"
-                rel="self"
-                type="application/rss+xml" />
-          ${items}
-            </channel>
-          </rss>
-          `;
+            const items = entries
+              .map((entry) => {
+                const pubDate =
+                  entry.pubDate
+                    ? `
+                <pubDate>${escapeXml(
+                  entry.pubDate
+                )}</pubDate>`
+                    : "";
+
+                const creator =
+                  entry.creator
+                    ? `
+                <dc:creator>${escapeXml(
+                  entry.creator
+                )}</dc:creator>`
+                    : "";
+
+                const description =
+                  entry.description
+                    ? `
+                <description><![CDATA[${safeCdata(
+                  entry.description
+                )}]]></description>`
+                    : "";
+
+                const content =
+                  entry.content
+                    ? `
+                <content:encoded><![CDATA[${safeCdata(
+                  entry.content
+                )}]]></content:encoded>`
+                    : "";
+
+                return `
+              <item>
+                <title>${escapeXml(
+                  entry.title
+                )}</title>
+                <link>${escapeXml(
+                  entry.link
+                )}</link>
+                <guid isPermaLink="true">${escapeXml(
+                  entry.guid
+                )}</guid>${pubDate}${creator}
+                <category domain="${escapeXml(
+                  entry.categoryDomain
+                )}">${escapeXml(
+                  entry.categoryName
+                )}</category>${description}${content}
+              </item>`;
+              })
+              .join("\n");
+
+            return createRssDocument(
+              boxdenFeed,
+              items
+            );
+          }
+
+          async function generateOptionalFeed({
+            feed,
+            generator,
+            generatedFeeds
+          }) {
+            try {
+              console.log(
+                `Processing ` +
+                  `${feed.feedTitle}...`
+              );
+
+              const xml =
+                await generator();
+
+              fs.writeFileSync(
+                `public/${feed.outputFile}`,
+                xml,
+                "utf8"
+              );
+
+              generatedFeeds.push(
+                feed
+              );
+
+              console.log(
+                `Generated ` +
+                  `${feed.outputFile}.`
+              );
+            } catch (error) {
+              console.warn(
+                `${feed.feedTitle} ` +
+                  `was skipped:`
+              );
+
+              console.warn(
+                error.message ||
+                  error
+              );
+
+              if (
+                await restorePreviousFeed(
+                  feed
+                )
+              ) {
+                generatedFeeds.push(
+                  feed
+                );
+
+                console.warn(
+                  `Kept the last ` +
+                    `successful ` +
+                    `${feed.outputFile}.`
+                );
+              } else {
+                console.warn(
+                  `No previous ` +
+                    `${feed.outputFile} ` +
+                    `was available. ` +
+                    `Other feeds will ` +
+                    `still publish.`
+                );
+              }
+            }
           }
 
           (async () => {
@@ -708,27 +1313,39 @@ jobs:
               const context =
                 await browser.newContext({
                   userAgent:
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                    "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                    "Chrome/124.0.0.0 Safari/537.36",
+                    "Mozilla/5.0 " +
+                    "(Windows NT 10.0; " +
+                    "Win64; x64) " +
+                    "AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) " +
+                    "Chrome/124.0.0.0 " +
+                    "Safari/537.36",
 
                   viewport: {
                     width: 1440,
                     height: 1600
-                  }
+                  },
+
+                  locale: "en-US"
                 });
 
-              fs.mkdirSync("public", {
-                recursive: true
-              });
+              fs.mkdirSync(
+                "public",
+                {
+                  recursive: true
+                }
+              );
 
-              const generatedFeeds = [];
+              const generatedFeeds =
+                [];
 
               for (
-                const feed of rottenTomatoesFeeds
+                const feed of
+                rottenTomatoesFeeds
               ) {
                 console.log(
-                  `Processing ${feed.feedTitle}...`
+                  `Processing ` +
+                    `${feed.feedTitle}...`
                 );
 
                 const page =
@@ -743,12 +1360,15 @@ jobs:
 
                   if (!entries.length) {
                     throw new Error(
-                      `No entries found for ${feed.feedTitle}.`
+                      `No entries found ` +
+                        `for ` +
+                        `${feed.feedTitle}.`
                     );
                   }
 
                   fs.writeFileSync(
-                    `public/${feed.outputFile}`,
+                    `public/` +
+                      `${feed.outputFile}`,
                     createRottenTomatoesRss(
                       feed,
                       entries
@@ -756,70 +1376,86 @@ jobs:
                     "utf8"
                   );
 
-                  generatedFeeds.push(feed);
+                  generatedFeeds.push(
+                    feed
+                  );
 
                   console.log(
-                    `Generated ${entries.length} entries for ${feed.outputFile}.`
+                    `Generated ` +
+                      `${entries.length} ` +
+                      `entries for ` +
+                      `${feed.outputFile}.`
                   );
                 } finally {
                   await page.close();
                 }
               }
 
-              console.log(
-                "Processing ResMed - TheLayoff..."
-              );
+              await generateOptionalFeed({
+                feed: layoffFeed,
+                generatedFeeds,
 
-              const layoffPage =
-                await context.newPage();
+                generator:
+                  async () => {
+                    const page =
+                      await context.newPage();
 
-              try {
-                const layoffEntries =
-                  await extractLayoffEntries(
-                    layoffPage
-                  );
+                    try {
+                      const entries =
+                        await extractLayoffEntries(
+                          page
+                        );
 
-                if (layoffEntries.length) {
-                  fs.writeFileSync(
-                    `public/${layoffFeed.outputFile}`,
-                    createLayoffRss(
-                      layoffEntries
-                    ),
-                    "utf8"
-                  );
+                      if (
+                        !entries.length
+                      ) {
+                        throw new Error(
+                          "No TheLayoff " +
+                            "entries were " +
+                            "found."
+                        );
+                      }
 
-                  generatedFeeds.push(
-                    layoffFeed
-                  );
+                      return createLayoffRss(
+                        entries
+                      );
+                    } finally {
+                      await page.close();
+                    }
+                  }
+              });
 
-                  console.log(
-                    `Generated ${layoffEntries.length} entries for ${layoffFeed.outputFile}.`
-                  );
+              await generateOptionalFeed({
+                feed: boxdenFeed,
+                generatedFeeds,
 
-                  for (
-                    const entry of
-                    layoffEntries.slice(0, 5)
-                  ) {
+                generator:
+                  async () => {
+                    const entries =
+                      await extractBoxdenEntries();
+
                     console.log(
-                      `- ${entry.title}: ${entry.href}`
+                      `Found ` +
+                        `${entries.length} ` +
+                        `Boxden TV / ` +
+                        `Movies items.`
+                    );
+
+                    for (
+                      const entry of
+                      entries.slice(0, 5)
+                    ) {
+                      console.log(
+                        `- ${entry.title}: ` +
+                          `${entry.link}`
+                      );
+                    }
+
+                    return createBoxdenRss(
+                      entries
                     );
                   }
-                }
-              } catch (error) {
-                console.warn(
-                  "TheLayoff feed was skipped:"
-                );
-
-                console.warn(
-                  error.message || error
-                );
-
-                console.warn(
-                  "The Rotten Tomatoes feeds will still be published."
-                );
-              } finally {
-                await layoffPage.close();
-              }
+              });
 
               const indexLinks =
                 generatedFeeds
